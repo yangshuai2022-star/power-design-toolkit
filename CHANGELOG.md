@@ -2,6 +2,18 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.3.1 — 2026-09-24
+
+### Changed — Release packaging and documentation
+
+- synchronized package metadata, runtime version, README badge and version regression to **9.3.1**;
+- repackages the current `main` branch through the maintained Windows x64 / macOS Apple Silicon release workflow;
+- carries the maintained GitHub Releases download path and the documented version-bump → CI tag → packaging process added after v9.3.0.
+
+### Engineering boundary
+
+This patch does not claim additional hardware validation or new power-stage algorithms beyond the current `main` branch. It publishes the current maintained source state with release/version metadata aligned.
+
 ## 9.3.0 — 2026-09-24
 
 ### Added — Guided System Design
