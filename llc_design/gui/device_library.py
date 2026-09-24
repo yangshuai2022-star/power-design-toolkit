@@ -31,6 +31,7 @@ from ..core.tank import design_tank
 from ..models.devices import DeviceDatabase, DeviceRole
 from ..models.primary_bridge import primary_bridge_loss
 from ..models.synchronous_rectifier import synchronous_rectifier_loss
+from power_control_tools.part_validation import format_missing, missing_llc_mosfet_loss_parameters
 
 
 _DEVICE_NUMERIC_FIELDS = (
@@ -148,6 +149,15 @@ class DeviceEditDialog(QDialog):
             return
         if self.numeric["rds_on_hot_ohm"][0].value() < self.numeric["rds_on_25_ohm"][0].value() * 0.5:
             QMessageBox.warning(self, "Device Parameters", "Hot RDS(on) is unexpectedly below the 25°C value; verify the datasheet entry.")
+            return
+        device = self.device()
+        missing = missing_llc_mosfet_loss_parameters(device)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Missing loss parameters",
+                "Cannot save until loss-model fields are complete:\n" + format_missing(missing),
+            )
             return
         self.accept()
 

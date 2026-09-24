@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QTabWidget,
     QTableWidget,
@@ -32,6 +33,8 @@ from pfc_design.engineering import (
     TTPLDesignResult,
     compare_ttpl_devices,
 )
+from pfc_design.gui.pfc_loss_summary import PFCDeviceLossRollup
+from power_control_tools.part_validation import format_missing, missing_pfc_mosfet_loss_parameters
 
 
 _NUMERIC_FIELDS = (
@@ -137,6 +140,15 @@ class PFCDeviceEditDialog(QDialog):
                 self,
                 "PFC Device Library",
                 "RDS(on) @150°C is unexpectedly far below the 25°C value; verify the entry.",
+            )
+            return
+        device = self.device()
+        missing = missing_pfc_mosfet_loss_parameters(device)
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Missing loss parameters",
+                "Cannot save until loss-model fields are complete:\n" + format_missing(missing),
             )
             return
         self.accept()
@@ -401,6 +413,20 @@ class TTPLDeviceLossView(QWidget):
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
 
+        pick = QHBoxLayout()
+        pick.addWidget(QLabel("HF pick"))
+        self.hf_pick = QComboBox()
+        pick.addWidget(self.hf_pick, 1)
+        pick.addWidget(QLabel("Slow pick"))
+        self.slow_pick = QComboBox()
+        pick.addWidget(self.slow_pick, 1)
+        root.addLayout(pick)
+        self.rollup_text = QPlainTextEdit()
+        self.rollup_text.setReadOnly(True)
+        self.rollup_text.setMaximumHeight(220)
+        self.rollup_text.setPlainText("Select HF/Slow devices after comparison to build the loss rollup.")
+        root.addWidget(self.rollup_text)
+
         tabs = QTabWidget()
         self.hf_table = self._table(
             [
@@ -444,6 +470,10 @@ class TTPLDeviceLossView(QWidget):
         self.deadtime.valueChanged.connect(self.refresh)
         self.reverse_drop.valueChanged.connect(self.refresh)
         self.derating.valueChanged.connect(self.refresh)
+        self.hf_pick.currentIndexChanged.connect(self._update_rollup)
+        self.slow_pick.currentIndexChanged.connect(self._update_rollup)
+        self._last_comparison = None
+        self._inductor_self_loss_w: float | None = None
         if self.design is not None:
             self.refresh()
 
@@ -477,11 +507,19 @@ class TTPLDeviceLossView(QWidget):
         self.database.refresh()
         self.refresh()
 
+    def set_inductor_self_loss(self, loss_w: float | None) -> None:
+        self._inductor_self_loss_w = None if loss_w is None else float(loss_w)
+        self._update_rollup()
+
     def refresh(self, *_args) -> None:
         if self.design is None:
             self.summary.setText("Run Power Stage / Sizing first.")
             self.hf_table.setRowCount(0)
             self.slow_table.setRowCount(0)
+            self.hf_pick.clear()
+            self.slow_pick.clear()
+            self.rollup_text.setPlainText("Run Power Stage / Sizing first.")
+            self._last_comparison = None
             return
         try:
             comparison = compare_ttpl_devices(
@@ -497,6 +535,7 @@ class TTPLDeviceLossView(QWidget):
             self.summary.setText(f"Device comparison failed: {exc}")
             return
 
+        self._last_comparison = comparison
         self.summary.setText(
             f"Vin={comparison.vin_rms_v:.2f} Vrms · Vbus={comparison.design.spec.bus_voltage_v:.1f} V · "
             f"Pout={comparison.design.spec.output_power_w/1000:.3f} kW · fs={comparison.design.spec.switching_frequency_hz/1e3:.2f} kHz · "
@@ -504,6 +543,8 @@ class TTPLDeviceLossView(QWidget):
         )
 
         self.hf_table.setRowCount(len(comparison.hf_devices))
+        self.hf_pick.blockSignals(True)
+        self.hf_pick.clear()
         for row, loss in enumerate(comparison.hf_devices):
             d = loss.device
             values = (
@@ -524,8 +565,12 @@ class TTPLDeviceLossView(QWidget):
             )
             for col, value in enumerate(values):
                 self.hf_table.setItem(row, col, QTableWidgetItem(value))
+            self.hf_pick.addItem(f"{d.part_number} · {loss.total_w:.3f} W", loss)
+        self.hf_pick.blockSignals(False)
 
         self.slow_table.setRowCount(len(comparison.slow_devices))
+        self.slow_pick.blockSignals(True)
+        self.slow_pick.clear()
         for row, loss in enumerate(comparison.slow_devices):
             d = loss.device
             values = (
@@ -541,7 +586,25 @@ class TTPLDeviceLossView(QWidget):
             )
             for col, value in enumerate(values):
                 self.slow_table.setItem(row, col, QTableWidgetItem(value))
+            self.slow_pick.addItem(f"{d.part_number} · {loss.total_w:.3f} W", loss)
+        self.slow_pick.blockSignals(False)
+        self._update_rollup()
 
+    def _update_rollup(self, *_args) -> None:
+        comparison = self._last_comparison
+        hf = self.hf_pick.currentData()
+        slow = self.slow_pick.currentData()
+        if comparison is None or hf is None or slow is None:
+            self.rollup_text.setPlainText("Select HF and Slow devices to build the loss rollup.")
+            return
+        rollup = PFCDeviceLossRollup(
+            workpoint=comparison.workpoint,
+            vin_rms_v=comparison.vin_rms_v,
+            hf=hf,
+            slow=slow,
+            inductor_self_loss_w=self._inductor_self_loss_w,
+        )
+        self.rollup_text.setPlainText(rollup.format_text())
 
 __all__ = [
     "PFCDeviceEditDialog",

@@ -447,6 +447,9 @@ class LLCMainWindow(QMainWindow):
         self.summary_text.setReadOnly(True)
         summary_layout.addWidget(self.summary_text, 1)
         self.tabs.addTab(summary, "设计总览")
+        from llc_design.gui.widgets.loss_summary_view import LossSummaryView
+        self.loss_summary_view = LossSummaryView()
+        self.tabs.addTab(self.loss_summary_view, "损耗汇总")
 
         self.gain_figure = Figure(figsize=(9, 6))
         self.gain_canvas = FigureCanvasQTAgg(self.gain_figure)
@@ -767,6 +770,8 @@ class LLCMainWindow(QMainWindow):
                         + [f"- {design_reason(reason)}" for reason in analysis.feasibility_reasons])
             self._append_log("Design diagnostics:\n" + "\n".join(analysis.feasibility_reasons))
         self.summary_text.setPlainText("\n".join(text))
+        if hasattr(self, "loss_summary_view"):
+            self.loss_summary_view.set_analysis(analysis)
         self._plot_gain(analysis)
         try:
             self.q_zvs_analysis = build_q_zvs_analysis(analysis.spec)

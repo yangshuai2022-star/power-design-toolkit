@@ -292,6 +292,7 @@ The two are different, so Auto Design results are written back as exact H(z).
     '工作点': 'Operating point',
     '工作点表': 'Operating point table',
     '损耗分解': 'Loss breakdown',
+    '损耗汇总': 'Loss summary',
     '局部开关周期': 'Local switching period',
     '完整 AC 周期': 'Full AC line cycle',
     '详细开关波形': 'Detailed switching waveform',

@@ -502,8 +502,28 @@ class PFCControlLabView(QWidget):
     def _inductor_design_ready(self, result) -> None:
         self.inductor_result_view.set_result(result)
         self.tabs.setCurrentIndex(self._inductor_result_index)
+        if hasattr(self, "device_loss_view"):
+            from pfc_design.magnetics import FerriteInductorResult
+            if isinstance(result, FerriteInductorResult):
+                self.device_loss_view.set_inductor_self_loss(result.total_inductor_loss_w)
+            else:
+                self.device_loss_view.set_inductor_self_loss(result.total_loss_w)
 
     def _apply_inductor_design(self, result) -> None:
+        from pfc_design.magnetics import FerriteInductorResult
+        if isinstance(result, FerriteInductorResult):
+            l_uh = result.inductance_h * 1e6
+            r_mohm = (result.copper_loss_w / max(result.phase_current_rms_a ** 2, 1e-18)) * 1e3
+            self.inductance.setValue(l_uh)
+            self.dcr.setValue(r_mohm)
+            QMessageBox.information(
+                self, "TTPL 电感参数已应用",
+                f"Ferrite Boost L = {l_uh:.3f} µH\n"
+                f"Estimated DCR from copper loss = {r_mohm:.3f} mΩ\n"
+                f"Inductor-self loss = {result.total_inductor_loss_w:.3f} W "
+                f"(not converter system loss)\n\n"
+                "已写回功率级参数；建议重新运行 PFC 分析。")
+            return
         self.inductance.setValue(result.l_full_load_peak_uh)
         self.dcr.setValue(result.rdc_hot_ohm * 1e3)
         QMessageBox.information(
