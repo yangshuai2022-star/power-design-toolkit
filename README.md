@@ -7,7 +7,8 @@ LLC · Totem-Pole PFC · Vienna PFC · Digital Control · FRA · C99 `float32_t`
 [![Build & Test](https://github.com/yangshuai2022-star/power-design-toolkit/actions/workflows/build-release.yml/badge.svg)](https://github.com/yangshuai2022-star/power-design-toolkit/actions/workflows/build-release.yml)
 [![ngspice Smoke](https://github.com/yangshuai2022-star/power-design-toolkit/actions/workflows/ngspice-smoke.yml/badge.svg)](https://github.com/yangshuai2022-star/power-design-toolkit/actions/workflows/ngspice-smoke.yml)
 ![Python](https://img.shields.io/badge/Python-%3E%3D3.10-blue)
-![Version](https://img.shields.io/badge/version-9.2.2-informational)
+![Version](https://img.shields.io/badge/version-9.3.0-informational)
+[![GitHub Release](https://img.shields.io/github/v/release/yangshuai2022-star/power-design-toolkit)](https://github.com/yangshuai2022-star/power-design-toolkit/releases/latest)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
 Power Design Toolkit is an engineering-oriented power-electronics design and digital-control platform. It connects **power-stage design, component/loss screening, multi-fidelity models, measured FRA data, exact discrete controller H(z), stability analysis, C99 code generation, firmware-correlated switching co-simulation and Agent/API access** in one codebase.
@@ -89,6 +90,12 @@ The desktop launcher opens four independent workspaces while preserving state du
 | **PFC Design** | Single-phase TTPL engineering workflow plus three-phase Vienna PFC | L/C sizing, device/loss/thermal screening, AC PF/THD, zero-crossing and switching waveforms, sensing/ADC, current/voltage H(z), C99, shared-ngspice TTPL closed loop |
 | **Control Tools** | General digital controller/filter design | H(s), exact H(z), Bode, step/impulse, poles/zeros, SOS/DF2T, single-file C99 `float32_t` |
 | **FRA Loop Designer** | Controller design from measured frequency response | Bode100/SIMPLIS import, controller de-embedding, Equivalent Plant, Fc/PM/GM/Ms/Mt, Auto Design, model ID, C99 |
+
+### Guided System Design (V9.3)
+
+From the launcher, **系统建模与设计 / Guided System Design** builds a canonical closed-loop definition for LLC FM voltage-loop or single-phase Totem-Pole PFC (current + bus voltage), then hands it into the existing design/control engines. An interactive **Fc–PM Solution Map** synthesizes candidate loops and installs only constraint-feasible points into the LLC/TTPL workspaces.
+
+Roadmap placeholders for other topologies are shown explicitly — they are not silently claimed as supported.
 
 ---
 
@@ -338,7 +345,20 @@ Start with:
 
 ## 8. Install and run
 
-### Requirements
+### Binary packages (recommended for end users)
+
+Download the latest Windows / macOS build from GitHub Releases:
+
+**[https://github.com/yangshuai2022-star/power-design-toolkit/releases/latest](https://github.com/yangshuai2022-star/power-design-toolkit/releases/latest)**
+
+| Asset | Platform |
+| --- | --- |
+| `PowerDesignTool-Windows-x64.zip` | Windows 11 x64 — extract and run `PowerDesignTool.exe` |
+| `PowerDesignTool-macOS-arm64.zip` | macOS Apple Silicon — extract and run `PowerDesignTool.app` |
+
+Unsigned macOS builds may need Finder **Open** once, or clearing quarantine on the downloaded app. CI gates for these zips are described in [Release process](docs/RELEASE.md); they prove software reproducibility, not hardware sign-off.
+
+### Requirements (from source)
 
 - Python **3.10+**
 - Windows / macOS / Linux
@@ -357,6 +377,8 @@ python -m pip install -e .
 python -m pip install -e ".[gui]"
 power-design-gui
 ```
+
+Source-tree launchers (`LLC工具.command` / `LLC工具.bat`, or the repo-root `.command` / `.bat` scripts) start the same desktop GUI when present.
 
 Equivalent source-tree entry:
 
@@ -459,6 +481,12 @@ Two CI layers are especially important:
 
 The ngspice smoke suite now covers both LLC and TTPL integration paths. The packaged-app self-test constructs all four Qt workspaces offscreen and validates bundled data provenance. A release no longer passes merely because a PyInstaller directory exists.
 
+### How releases are published
+
+The supported publish path is **version bump on `main` → CI creates `vX.Y.Z` → packaging → GitHub Release**. Do not hand-tag a mismatched version.
+
+Full checklist and recovery steps: **[docs/RELEASE.md](docs/RELEASE.md)**.
+
 A reproducible real launcher screenshot can be generated with:
 
 ```bash
@@ -506,6 +534,7 @@ Start here instead of reading historical version notes:
 - [Engineering data policy](docs/ENGINEERING_DATA.md)
 - [Agent / MCP](docs/AGENT_MCP.md)
 - [Web deployment](docs/WEB_DEPLOYMENT.md)
+- [Release process](docs/RELEASE.md)
 - [Changelog](CHANGELOG.md)
 
 The application also contains an offline **Help / F1** system in all four workspaces, including implementation notes, model boundaries and known limitations.

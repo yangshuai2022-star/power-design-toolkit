@@ -2,6 +2,26 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.3.0 — 2026-09-24
+
+### Added — Guided System Design
+
+- launcher entry **系统建模与设计 / Guided System Design** for LLC FM voltage-loop and single-phase Totem-Pole PFC;
+- canonical guided control-system definition shared by GUI handoff and downstream engines;
+- interactive **Fc–PM Solution Map** with constraint filtering before install into LLC / TTPL workspaces;
+- automatic LLC full digital-loop build after guided design when applicable;
+- localized Guided System Design strings (zh / en / ja / ko).
+
+### Documentation / release
+
+- README version badge aligned to **9.3.0**;
+- binary download section pointing at GitHub Releases;
+- maintained **[docs/RELEASE.md](docs/RELEASE.md)** describing the only supported publish path: bump `pyproject.toml` on `main` → CI creates `vX.Y.Z` → package → GitHub Release.
+
+### Engineering boundary
+
+Guided Design reuses existing LLC/PFC kernels; Solution Map install is fail-closed when constraints are not met. Topology placeholders outside LLC/TTPL remain roadmap-only.
+
 ## 9.2.3 — 2026-09-16
 
 ### Added — PFC Engineering Workspace V2

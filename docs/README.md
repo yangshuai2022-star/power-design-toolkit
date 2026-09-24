@@ -28,6 +28,7 @@ The repository used to accumulate release snapshots, one-off migration notes, te
 | [ENGINEERING_DATA.md](ENGINEERING_DATA.md) | Device, core and material database provenance/release policy |
 | [AGENT_MCP.md](AGENT_MCP.md) | MCP v2 Agent interface and deterministic-kernel boundary |
 | [WEB_DEPLOYMENT.md](WEB_DEPLOYMENT.md) | FastAPI/web architecture, local execution and deployment |
+| [RELEASE.md](RELEASE.md) | Version bump → tag → CI packaging → GitHub Release publish path |
 | [../reference_designs/README.md](../reference_designs/README.md) | Reference-design evidence contract and current cases |
 | [../CHANGELOG.md](../CHANGELOG.md) | Current concise version history |
 
