@@ -2,6 +2,24 @@
 
 from .export import export_multifidelity_analysis, write_multifidelity_markdown
 from .fha import solve_fha
+from .fha_td_validation import (
+    DeviationResult,
+    FhaCredibility,
+    FhaTdPointValidation,
+    FhaTdValidationReport,
+    FhaValidityCell,
+    FhaValidityMap,
+    ModelValidity,
+    ValidityThresholds,
+    build_fha_validity_map,
+    compare_fha_td_metrics,
+    critical_requests_from_envelope,
+    default_critical_requests,
+    validate_fha_against_time_domain,
+    validate_fha_td,
+    validate_fha_td_point,
+)
+from .engineering_validation import EngineeringEvidenceReport, run_engineering_validation
 from .golden import GoldenSolverConfig, LLCGoldenSolver, solve_multifidelity
 from .harmonic_balance import (
     HarmonicBalanceConfig,
@@ -29,7 +47,10 @@ from .types import (
 )
 
 __all__ = [
+    "DeviationResult",
     "FidelityLevel",
+    "FhaTdPointValidation",
+    "FhaTdValidationReport",
     "GoldenSolverConfig",
     "HarmonicBalanceConfig",
     "HarmonicBalanceConvergenceError",
@@ -40,22 +61,36 @@ __all__ = [
     "LLCModelResult",
     "ModelComparisonRow",
     "ModelMetrics",
+    "ModelValidity",
     "MultiFidelityAnalysis",
     "MultiHarmonicLLCSolver",
     "SolverConvergence",
     "TimeDomainConfig",
     "ComplementarityTimeDomainConfig",
     "TimeDomainNativeSolution",
+    "ValidityThresholds",
+    "build_fha_validity_map",
+    "compare_fha_td_metrics",
+    "critical_requests_from_envelope",
+    "default_critical_requests",
     "exact_rectifier_projection",
     "export_multifidelity_analysis",
     "extract_peak_phasors",
     "find_trigonometric_zero_crossings",
     "odd_harmonics",
+    "run_engineering_validation",
     "solve_fha",
     "solve_harmonic_balance",
     "solve_multifidelity",
     "solve_time_domain",
     "solve_complementarity_time_domain",
     "synthesize_real_waveform",
+    "validate_fha_against_time_domain",
+    "validate_fha_td",
+    "validate_fha_td_point",
     "write_multifidelity_markdown",
+    "EngineeringEvidenceReport",
+    "FhaCredibility",
+    "FhaValidityCell",
+    "FhaValidityMap",
 ]

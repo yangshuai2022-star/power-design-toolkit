@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from ..core.engineering import (
+    EnvelopeEvaluation,
+    OperatingEnvelope,
+    evaluate_operating_envelope,
+)
 from ..core.operating_point import LLCOperatingPoint, solve_operating_point
 from ..core.spec import LLCDesignSpec
 from ..core.tank import GainNotReachableError, TankDesign, design_tank
@@ -134,6 +139,24 @@ class LLCSystemAnalyzer:
         self.core_db = core_database or CoreDatabase()
         self.device_db = device_database or DeviceDatabase()
 
+    def evaluate_envelope(
+        self,
+        spec: LLCDesignSpec,
+        envelope: OperatingEnvelope | None = None,
+        *,
+        zvs_level: int = 2,
+    ) -> EnvelopeEvaluation:
+        """Operating-envelope + constraint + worst-case evaluation (additive)."""
+
+        primary = self.device_db.get_primary(spec.primary_device)
+        return evaluate_operating_envelope(
+            spec,
+            envelope,
+            device_qoss_c=primary.qoss_c,
+            device_coss_f=primary.coss_er_f,
+            zvs_level=zvs_level,
+        )
+
     def analyze(self, spec: LLCDesignSpec,
                 work_points: Iterable[tuple[float, float]] | None = None,
                 preferred_transformer_core: str | None = None,
@@ -244,8 +267,41 @@ class LLCSystemAnalyzer:
         warnings.append("Litz loss uses exact round-strand skin effect, harmonic layer-MMF proximity loss, transposition and termination penalties; 2D/3D FEA remains the final verification method.")
         warnings.append("Resonant-inductor gap-fringing winding loss is enabled through a distance-based calibrated field term; transformer leakage contribution to Lr remains separate.")
 
+        # Low-risk wire: identify the worst ZVS corner among solved work points
+        # using the Level-2 charge-balance definition (does not change feasibility).
+        try:
+            import math as _math
+            from ..core.zvs_margin import evaluate_zvs_margin
+            worst_label = None
+            worst_margin = float("inf")
+            worst_zvs = None
+            for point in point_results:
+                zvs = evaluate_zvs_margin(
+                    spec, tank, point.operating_point, device=primary_device, level=2)
+                if _math.isnan(zvs.zvs_margin):
+                    continue
+                if zvs.zvs_margin < worst_margin:
+                    worst_margin = zvs.zvs_margin
+                    worst_label = point.label
+                    worst_zvs = zvs
+            if worst_zvs is not None and worst_label is not None:
+                warnings.append(
+                    f"Worst ZVS charge-balance corner {worst_label}: "
+                    f"ZVS_MARGIN={worst_zvs.zvs_margin:.3f}, "
+                    f"MODEL={worst_zvs.model_source}, "
+                    f"Qavail={worst_zvs.q_available:.3e} C, "
+                    f"Qreq={worst_zvs.q_required:.3e} C"
+                )
+        except Exception as exc:
+            warnings.append(f"ZVS charge-balance summary unavailable: {exc}")
+
         return SystemAnalysis(
             spec=spec, tank=tank, transformer=transformer,
             resonant_inductor=resonant_inductor, bus_capacitor=bus,
             operating_points=tuple(point_results), feasible=not reasons,
             feasibility_reasons=tuple(reasons), warnings=tuple(warnings))
+
+    def engineering_validation(self, spec: LLCDesignSpec, **kwargs):
+        """Envelope + critical FHA↔TD + evidence report (does not replace analyze())."""
+        from ..analysis.engineering_validation import run_engineering_validation
+        return run_engineering_validation(spec, analyzer=self, **kwargs)
