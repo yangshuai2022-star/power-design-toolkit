@@ -21,27 +21,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0
           python -m pip install --upgrade pip
-          # Include GUI + Agent dependencies so launcher/FRA and MCP smoke tests
-          # execute for real instead of being silently skipped or left unimported.
           python -m pip install -e ".[dev,web,gui,agent]"
-
       - name: Run tests
         run: python -m pytest
-
       - name: Capture real launcher screenshot
         run: python scripts/capture_readme_screenshot.py docs/assets/power-design-toolkit-overview.png --language en
-
       - name: Upload README screenshot candidate
         uses: actions/upload-artifact@v4
         with:
@@ -61,7 +54,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Detect release-version change
         id: release
         shell: bash
@@ -80,22 +72,14 @@ jobs:
             previous="$current"
           fi
           tag="v${current}"
-          echo "current=$current" >> "$GITHUB_OUTPUT"
-          echo "previous=$previous" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "package version: previous=$previous current=$current"
-          git fetch --tags --force
-          if [ "$current" = "$previous" ]; then
+          git fetch --tags
+          if [ "$current" = "$previous" ] || git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             echo "create=false" >> "$GITHUB_OUTPUT"
-            echo "package version unchanged; release tag not created"
-          elif git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "create=false" >> "$GITHUB_OUTPUT"
-            echo "$tag already exists; release tag not created"
           else
             echo "create=true" >> "$GITHUB_OUTPUT"
-            echo "release version changed; $tag will be created after CI"
           fi
-
       - name: Create annotated release tag
         if: steps.release.outputs.create == 'true'
         shell: bash
@@ -104,7 +88,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.release.outputs.tag }}" "$GITHUB_SHA" -m "Power Design Toolkit ${{ steps.release.outputs.tag }}"
           git push origin "${{ steps.release.outputs.tag }}"
-
       - name: Dispatch packaging workflow from release tag
         if: steps.release.outputs.create == 'true'
         env:
@@ -116,7 +99,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: test
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -124,51 +107,42 @@ jobs:
           - os: macos-latest
             artifact: power-design-tool-macos-arm64
             zip-name: PowerDesignTool-macOS-arm64.zip
-            app-dir: dist/PowerDesignTool.app
-            app-type: app
+            executable: dist/PowerDesignTool.app/Contents/MacOS/PowerDesignTool
           - os: windows-latest
             artifact: power-design-tool-windows-x64
             zip-name: PowerDesignTool-Windows-x64.zip
-            app-dir: dist/PowerDesignTool
-            app-type: exe
+            executable: dist/PowerDesignTool/PowerDesignTool.exe
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Validate tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Validate release version
+        id: metadata
         shell: bash
         run: |
           python - <<'PY'
-          import os
-          import tomllib
+          import os, tomllib
           from pathlib import Path
-
           version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-          tag = os.environ["GITHUB_REF_NAME"]
-          expected = f"v{version}"
-          if tag != expected:
-              raise SystemExit(f"release tag/version mismatch: tag={tag!r}, expected={expected!r}")
-          print(f"release version contract OK: {tag}")
+          if os.environ["GITHUB_REF"].startswith("refs/tags/") and os.environ["GITHUB_REF_NAME"] != f"v{version}":
+              raise SystemExit("release tag/version mismatch")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+          print(f"release version contract OK: {version}")
           PY
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install pyinstaller
           python -m pip install -e ".[gui,dev,web,agent]"
-
       - name: Run tests
         run: python -m pytest
-
       - name: Build with PyInstaller
+        shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --name PowerDesignTool \
             --collect-data llc_design --collect-data pfc_design --collect-data power_codegen \
@@ -176,68 +150,123 @@ jobs:
             --collect-submodules llc_design --collect-submodules pfc_design --collect-submodules power_codegen \
             --collect-submodules power_control_tools \
             packaging/launcher.py
-        shell: bash
-
-      - name: Packaged application self-test (macOS)
-        if: runner.os == 'macOS'
+      - name: Verify frozen application and fresh evidence
         shell: bash
         run: |
-          test -x "dist/PowerDesignTool.app/Contents/MacOS/PowerDesignTool"
-          QT_QPA_PLATFORM=offscreen "dist/PowerDesignTool.app/Contents/MacOS/PowerDesignTool" --self-test
-
-      - name: Packaged application self-test (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:QT_QPA_PLATFORM = "offscreen"
-          $exe = "dist/PowerDesignTool/PowerDesignTool.exe"
-          if (-not (Test-Path $exe)) { throw "packaged executable not found: $exe" }
-          & $exe --self-test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
+          python packaging/verify_bundle.py "${{ matrix.executable }}" \
+            --version "${{ steps.metadata.outputs.version }}" \
+            --output "bundle-proof-${{ runner.os }}.json"
       - name: Zip macOS app
         if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc dist/PowerDesignTool.app "${{ matrix.zip-name }}"
-
+        run: ditto -c -k --sequesterRsrc --keepParent dist/PowerDesignTool.app "${{ matrix.zip-name }}"
       - name: Zip Windows build
         if: runner.os == 'Windows'
         run: powershell Compress-Archive -Path dist/PowerDesignTool -DestinationPath "${{ matrix.zip-name }}" -Force
-
-      - name: Upload artifact
+      - name: Upload verified package and evidence
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.zip-name }}
+          path: |
+            ${{ matrix.zip-name }}
+            bundle-proof-${{ runner.os }}.json
           if-no-files-found: error
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  publish:
+    # A failed platform prevents this job; matrix jobs have no release permission.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+      - name: Download both verified platform packages
+        uses: actions/download-artifact@v4
         with:
-          files: ${{ matrix.zip-name }}
-          generate_release_notes: true
-          body: |
-            # Power Design Toolkit ${{ github.ref_name }}
-
-            Automated Windows x64 and macOS Apple Silicon release artifacts.
-
-            ## Release gates
-            - full Python regression suite passed;
-            - package version matches the Git tag;
-            - the packaged executable itself passed `--self-test`;
-            - all four GUI workspaces were constructed in offscreen mode;
-            - bundled engineering-data provenance passed structural validation.
-
-            Passing these gates demonstrates software reproducibility and package integrity only. It does **not** by itself establish hardware-release readiness; see `docs/ENGINEERING_VALIDATION.md`.
-
-            ## Install
-            **Windows 11**
-            1. Extract `PowerDesignTool-Windows-x64.zip`.
-            2. Run `PowerDesignTool.exe`.
-
-            **macOS (Apple Silicon)**
-            1. Extract `PowerDesignTool-macOS-arm64.zip`.
-            2. If macOS blocks the unsigned app, use Finder **Open**, or clear quarantine for the app you downloaded.
-            3. Run `PowerDesignTool.app`.
-
-            The generated GitHub release notes below are the authoritative per-version change list.
+          pattern: power-design-tool-*
+          path: release
+          merge-multiple: true
+      - name: Verify both archives and write checksums
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, tomllib, zipfile
+          from pathlib import Path
+          version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          assert os.environ["GITHUB_REF_NAME"] == f"v{version}", "tag/version mismatch"
+          taxonomy_sha = hashlib.sha256(Path("engineering_data/brand_taxonomy.json").read_bytes()).hexdigest()
+          packages = (
+              ("Windows", "win32", "PowerDesignTool-Windows-x64.zip", "PowerDesignTool/PowerDesignTool.exe"),
+              ("macOS", "darwin", "PowerDesignTool-macOS-arm64.zip", "PowerDesignTool.app/Contents/MacOS/PowerDesignTool"),
+          )
+          manifest = []
+          for runner, platform, name, executable in packages:
+              proof = json.loads(Path(f"release/bundle-proof-{runner}.json").read_text())
+              assert proof["success"] is True and proof["frozen"] is True
+              assert proof["version"] == version and proof["platform"] == platform
+              assert proof["guided_design"] is True
+              assert proof["workspaces"] == ["llc", "pfc", "control", "fra"]
+              assert proof["brand_taxonomy_sha256"] == taxonomy_sha
+              archive = Path("release") / name
+              with zipfile.ZipFile(archive) as bundle:
+                  assert executable in bundle.namelist(), f"missing executable in {name}"
+                  assert bundle.testzip() is None, f"corrupt archive: {name}"
+                  entries = [n for n in bundle.namelist() if n.endswith("/engineering_data/brand_taxonomy.json")]
+                  assert any(hashlib.sha256(bundle.read(n)).hexdigest() == taxonomy_sha for n in entries), f"missing/wrong taxonomy: {name}"
+              manifest.append(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {name}")
+          Path("release/SHA256SUMS.txt").write_text("\n".join(manifest) + "\n")
+          changes = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          sections = changes.split("\n## ")
+          selected = ["## " + s for s in sections[1:] if s.startswith(version + " ") or (version == "9.4.1" and s.startswith("9.4.0 "))]
+          notes = f"# Power Design Toolkit v{version}\n\nBoth Windows x64 and macOS arm64 frozen executables completed verified self-tests. Checksums and machine-readable evidence are attached. Software/model verification is not hardware validation.\n\n" + "\n".join(selected)
+          Path("release-notes.md").write_text(notes, encoding="utf-8")
+          PY
+      - name: Stage and publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" --json isDraft > existing-release.json 2>/dev/null; then
+            python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "refusing to overwrite a published release"'
+          else
+            gh release create "$tag" --verify-tag --draft --title "Power Design Toolkit $tag — Smart Control" --notes-file release-notes.md
+          fi
+          gh release upload "$tag" release/* --clobber
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > uploaded-assets.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          assets = {a["name"]: a for a in json.load(open("uploaded-assets.json"))["assets"]}
+          expected = {p.name: p.stat().st_size for p in Path("release").iterdir() if p.is_file()}
+          assert set(assets) == set(expected), "incomplete or unexpected release assets"
+          for name, size in expected.items():
+              assert assets[name]["size"] == size, f"asset size mismatch: {name}"
+              digest = hashlib.sha256((Path("release") / name).read_bytes()).hexdigest()
+              assert assets[name]["digest"] == f"sha256:{digest}", f"uploaded digest mismatch: {name}"
+          PY
+          gh release edit "$tag" --notes-file release-notes.md --draft=false --latest
+      - name: Mark incomplete 9.4.0 as superseded
+        if: github.ref == 'refs/tags/v9.4.1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view v9.4.0 --json body > old-release.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.load(open("old-release.json"))["body"]
+          notice = "WARNING: This release is incomplete and superseded by v9.4.1. Its macOS package failed startup because shared engineering data was not bundled. Do not use this release; download v9.4.1 instead.\n\n"
+          if not body.startswith("WARNING: This release is incomplete"):
+              body = notice + body
+          Path("old-release-notes.md").write_text(body, encoding="utf-8")
+          PY
+          gh release edit v9.4.0 --prerelease --latest=false --notes-file old-release-notes.md
