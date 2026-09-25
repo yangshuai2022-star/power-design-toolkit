@@ -84,7 +84,7 @@ def test_publish_waits_for_both_platforms_and_stages_draft():
     assert "uploaded digest mismatch" in publish
 
 
-def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=False):
+def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=False, windows_backslash=False):
     import hashlib
     import textwrap
     import zipfile
@@ -94,7 +94,7 @@ def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=Fa
     (tmp_path / "engineering_data").mkdir()
     (tmp_path / "engineering_data/brand_taxonomy.json").write_bytes(taxonomy)
     (tmp_path / "pyproject.toml").write_text('[project]\nversion="9.4.1"\n')
-    (tmp_path / "CHANGELOG.md").write_text('# Changelog\n\n## 9.4.1 — test\nFix\n\n## 9.4.0 — test\nFeatures\n')
+    (tmp_path / "CHANGELOG.md").write_text('# Changelog\n\n## 9.4.1 — test\nFix\n\n## 9.4.0 — test\nFeatures\n', encoding="utf-8")
     (tmp_path / "release").mkdir()
     for runner, platform, name, exe in (
         ("Windows", "win32", "PowerDesignTool-Windows-x64.zip", "PowerDesignTool/PowerDesignTool.exe"),
@@ -107,8 +107,8 @@ def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=Fa
                  "brand_taxonomy_sha256": digest}
         (tmp_path / f"release/bundle-proof-{runner}.json").write_text(json.dumps(proof))
         with zipfile.ZipFile(tmp_path / "release" / name, "w") as bundle:
-            bundle.writestr(exe, b"fixture executable, not a real bundle")
-            bundle.writestr("root/engineering_data/brand_taxonomy.json", b"wrong" if wrong_taxonomy else taxonomy)
+            bundle.writestr(exe.replace("/", "\\") if windows_backslash and runner == "Windows" else exe, b"fixture executable, not a real bundle")
+            bundle.writestr("root\\engineering_data\\brand_taxonomy.json" if windows_backslash and runner == "Windows" else "root/engineering_data/brand_taxonomy.json", b"wrong" if wrong_taxonomy else taxonomy)
     workflow = (ROOT / ".github/workflows/build-release.yml").read_text(encoding="utf-8")
     block = workflow.split("- name: Verify both archives and write checksums\n", 1)[1]
     block = block.split("run: |\n", 1)[1].split("\n      - name:", 1)[0]
@@ -131,3 +131,25 @@ def test_archive_gate_rejects_partial_release(tmp_path, monkeypatch):
 def test_archive_gate_rejects_wrong_bundled_data(tmp_path, monkeypatch):
     with pytest.raises(AssertionError, match="taxonomy"):
         _archive_gate(tmp_path, monkeypatch, wrong_taxonomy=True)
+
+
+@pytest.mark.parametrize("default_encoding", ["cp1252", "utf-8"])
+def test_archive_gate_is_independent_of_default_text_encoding(tmp_path, monkeypatch, default_encoding):
+    """Exercise the same archive gate under Windows and UTF-8 write defaults."""
+    original_write_text = Path.write_text
+
+    def locale_write_text(path, data, encoding=None, errors=None, newline=None):
+        return original_write_text(
+            path, data, encoding=encoding or default_encoding,
+            errors=errors, newline=newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", locale_write_text)
+    _archive_gate(tmp_path, monkeypatch)
+    notes = (tmp_path / "release-notes.md").read_text(encoding="utf-8")
+    assert "9.4.1 — test" in notes
+
+
+def test_archive_gate_handles_windows_zip_separators(tmp_path, monkeypatch):
+    _archive_gate(tmp_path, monkeypatch, windows_backslash=True)
+    assert len((tmp_path / "release/SHA256SUMS.txt").read_text().splitlines()) == 2
