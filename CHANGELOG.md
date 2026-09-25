@@ -2,6 +2,21 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.4.2 — 2026-09-25
+
+### Fixed — Windows release-test encoding
+
+- writes the release-test CHANGELOG fixture explicitly as UTF-8, correcting the Windows CP1252 / UTF-8 mismatch that blocked v9.4.1 before Windows packaging;
+- adds regression coverage for both CP1252 and UTF-8 default text encodings without weakening archive, runtime, or release checks;
+- aligns package/runtime/version-test/README metadata to 9.4.2; existing tags are preserved;
+- retains the complete V9.4 Smart Control feature set: eight-step Guided System Design, Fc–PM Solution Map integration, LLC envelope/constraint/ZVS/FHA–TD foundations, loss summaries and PFC magnetic tooling;
+- retains the v9.4.1 packaging corrections: shared engineering data, verified frozen startup outside the source tree, fresh platform evidence, and both-platform draft-before-publication gates;
+- no power-stage or control algorithms are changed in this patch. Full Windows/macOS CI and packaged self-tests remain required before publication.
+
+### Engineering boundary
+
+Software test success, packaged startup, model correlation and hardware validation remain distinct. Existing PARTIAL / APPROXIMATION / UNKNOWN model limitations are unchanged. The incomplete v9.4.0 release and failed v9.4.1 attempt are not recommended downloads; use the newest complete release.
+
 ## 9.4.1 — 2026-09-25
 
 ### Fixed — Complete and verified Smart Control desktop release
