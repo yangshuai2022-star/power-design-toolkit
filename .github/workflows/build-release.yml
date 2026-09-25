@@ -172,6 +172,7 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --name PowerDesignTool \
             --collect-data llc_design --collect-data pfc_design --collect-data power_codegen \
+            --add-data "engineering_data:engineering_data" \
             --collect-submodules llc_design --collect-submodules pfc_design --collect-submodules power_codegen \
             --collect-submodules power_control_tools \
             packaging/launcher.py
