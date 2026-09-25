@@ -2,6 +2,64 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.4.0 — 2026-09-25
+
+### Added / integrated — Smart Control and engineering workflow
+
+- integrates the previously unmerged `feature/v9.3-guided-smart-control-ui` work, including original feature head `ae58161b11c4246e7a81e25b25a9260ec065030d`;
+- expands Guided System Design into eight explicit steps: topology, power stage, sensing, ADC, modulator, timing, controller and review, while retaining the Expert workspaces;
+- adds live engineering summaries, explicit sensing/timing views, guided-definition re-entry and Solution Map interaction improvements;
+- adds LLC operating-envelope, constraint and worst-case engines, plus charge-balance ZVS margin evaluation;
+- adds critical-point FHA/time-domain comparison, convergence-aware evidence, waveform-loss provenance, lumped electro-thermal iteration and two-stage optimization foundations;
+- adds LLC/PFC loss-summary views, component validation/brand taxonomy, PFC ferrite-inductor design and a persistent user-core library;
+- includes the four LLC engineering audit/model-validation documents and associated regression tests;
+- fixes the source launcher filenames/behavior, restores the explicit FRA Loop Designer button, and derives the launcher version badge from the runtime version.
+
+### Release validation hardening
+
+- removes an always-true optimizer ordering assertion and adds deterministic envelope/TD rejection-consumer tests;
+- synchronizes package/runtime/version regression/README to 9.4.0;
+- adds mandatory release-scope preflight documentation: identify intended branches/commits, verify merged ancestry and inspect the final release diff before tagging;
+- retains the existing full-test, real-ngspice, version-contract and packaged-application verification paths; published 9.3.x tags are not moved.
+
+### Engineering boundary
+
+Smart Control is the guided system-definition workflow, not an unrestricted drag-and-drop simulator or AI hardware sign-off. Guided adapters currently support LLC FM voltage control and single-phase Totem-Pole PFC; other topology/plant-source placeholders remain reserved. Fc × PM Solution Map synthesis currently targets Tustin PI, not every controller family.
+
+Several new physics capabilities are API/opt-in foundations: the default analysis and some GUI/PDF/Web consumers remain FHA-centric. Constant-current ZVS commutation, nonlinear device curves, winding AC loss, leakage and lumped thermal models retain their documented PARTIAL / APPROXIMATION / UNKNOWN / ESTIMATED status. A converged simulation or passing software regression does not establish hardware validation. See [LLC model validation](docs/LLC_MODEL_VALIDATION_REPORT.md).
+
+## 9.3.1 — 2026-09-24
+
+### Changed — Release packaging and documentation
+
+- synchronized package metadata, runtime version, README badge and version regression to **9.3.1**;
+- repackages the current `main` branch through the maintained Windows x64 / macOS Apple Silicon release workflow;
+- carries the maintained GitHub Releases download path and the documented version-bump → CI tag → packaging process added after v9.3.0.
+
+### Engineering boundary
+
+This patch does not claim additional hardware validation or new power-stage algorithms beyond the current `main` branch. It publishes the current maintained source state with release/version metadata aligned.
+
+## 9.3.0 — 2026-09-24
+
+### Added — Guided System Design
+
+- launcher entry **系统建模与设计 / Guided System Design** for LLC FM voltage-loop and single-phase Totem-Pole PFC;
+- canonical guided control-system definition shared by GUI handoff and downstream engines;
+- interactive **Fc–PM Solution Map** with constraint filtering before install into LLC / TTPL workspaces;
+- automatic LLC full digital-loop build after guided design when applicable;
+- localized Guided System Design strings (zh / en / ja / ko).
+
+### Documentation / release
+
+- README version badge aligned to **9.3.0**;
+- binary download section pointing at GitHub Releases;
+- maintained **[docs/RELEASE.md](docs/RELEASE.md)** describing the only supported publish path: bump `pyproject.toml` on `main` → CI creates `vX.Y.Z` → package → GitHub Release.
+
+### Engineering boundary
+
+Guided Design reuses existing LLC/PFC kernels; Solution Map install is fail-closed when constraints are not met. Topology placeholders outside LLC/TTPL remain roadmap-only.
+
 ## 9.2.3 — 2026-09-16
 
 ### Added — PFC Engineering Workspace V2

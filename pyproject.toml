@@ -1,6 +1,6 @@
 [project]
 name = "power-design-toolkit"
-version = "9.3.0"
+version = "9.4.0"
 description = "Open-source power electronics CAE toolkit for LLC, PFC, FRA, digital control, C99 code generation and switching verification"
 license = {text = "GPL-3.0-only"}
 requires-python = ">=3.10"
