@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from llc_design import __version__
 from llc_design.core.spec import LLCDesignSpec
 from llc_design.gui import theme
 from llc_design.gui.help import show_help
@@ -143,7 +144,7 @@ class WorkspaceSelectionDialog(QDialog):
             t("系统建模与设计 / Guided System Design"),
             t("从功率级、采样、ADC、PWM 到完整闭环的逐步建模"),
             primary=True,
-            badge="V9.3 PRIMARY ENTRY",
+            badge=f"V{__version__} PRIMARY ENTRY",
             cta="Start",
             object_name="guided_system_design_button",
         )
@@ -189,7 +190,7 @@ class WorkspaceSelectionDialog(QDialog):
             t("进入 FRA Loop Designer"),
             t("Bode100 / SIMPLIS / Generic：Equivalent Plant、Auto Design、Model ID、稳定性与 C99"),
             badge="EXPERT",
-            cta=t("进入 FRA"),
+            cta=t("进入 FRA Loop Designer"),
             object_name="fra_designer_card",
         )
         llc.button.clicked.connect(lambda: self._select("llc"))
