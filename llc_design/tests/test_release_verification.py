@@ -94,7 +94,7 @@ def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=Fa
     (tmp_path / "engineering_data").mkdir()
     (tmp_path / "engineering_data/brand_taxonomy.json").write_bytes(taxonomy)
     (tmp_path / "pyproject.toml").write_text('[project]\nversion="9.4.1"\n')
-    (tmp_path / "CHANGELOG.md").write_text('# Changelog\n\n## 9.4.1 — test\nFix\n\n## 9.4.0 — test\nFeatures\n')
+    (tmp_path / "CHANGELOG.md").write_text('# Changelog\n\n## 9.4.1 — test\nFix\n\n## 9.4.0 — test\nFeatures\n', encoding="utf-8")
     (tmp_path / "release").mkdir()
     for runner, platform, name, exe in (
         ("Windows", "win32", "PowerDesignTool-Windows-x64.zip", "PowerDesignTool/PowerDesignTool.exe"),
@@ -131,3 +131,20 @@ def test_archive_gate_rejects_partial_release(tmp_path, monkeypatch):
 def test_archive_gate_rejects_wrong_bundled_data(tmp_path, monkeypatch):
     with pytest.raises(AssertionError, match="taxonomy"):
         _archive_gate(tmp_path, monkeypatch, wrong_taxonomy=True)
+
+
+@pytest.mark.parametrize("default_encoding", ["cp1252", "utf-8"])
+def test_archive_gate_is_independent_of_default_text_encoding(tmp_path, monkeypatch, default_encoding):
+    """Exercise the same archive gate under Windows and UTF-8 write defaults."""
+    original_write_text = Path.write_text
+
+    def locale_write_text(path, data, encoding=None, errors=None, newline=None):
+        return original_write_text(
+            path, data, encoding=encoding or default_encoding,
+            errors=errors, newline=newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", locale_write_text)
+    _archive_gate(tmp_path, monkeypatch)
+    notes = (tmp_path / "release-notes.md").read_text(encoding="utf-8")
+    assert "9.4.1 — test" in notes
