@@ -138,7 +138,9 @@ jobs:
             gh release create "$tag" --verify-tag --draft --title "Power Design Toolkit $tag — Smart Control" --notes-file release-notes.md
           fi
           gh release upload "$tag" release/* --clobber
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > uploaded-assets.json
+          release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          [[ "$release_id" =~ ^[0-9]+$ ]] || { echo "invalid release ID"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded-assets.json
           python - <<'PY'
           import hashlib, json
           from pathlib import Path
@@ -153,7 +155,7 @@ jobs:
           PY
           test "$(git ls-remote origin 'refs/tags/v9.4.2^{}' | cut -f1)" = e8751d37ceb975ae0e8e13b374773e419de6643b
           gh release edit "$tag" --draft=false --latest --notes-file release-notes.md
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '{tag_name,draft,prerelease,published_at,assets:[.assets[].name]}'
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '{tag_name,draft,prerelease,published_at,assets:[.assets[].name]}'
       - name: Mark incomplete v9.4.0 superseded
         working-directory: version-tree
         shell: bash
