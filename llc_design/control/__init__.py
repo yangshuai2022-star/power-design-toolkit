@@ -31,6 +31,14 @@ from .digital_loop import (
     export_controller_c99,
     export_digital_loop_analysis,
 )
+from .smart_control import (
+    LoopModel,
+    TimingModel,
+    build_loop_model,
+    compute_phase_budget,
+    compute_stability_metrics,
+    verify_exact_hz_float32,
+)
 
 __all__ = [
     "ADCSamplingConfig",
@@ -64,4 +72,10 @@ __all__ = [
     "export_controller_c99",
     "export_digital_loop_analysis",
     "linearize_dynamic_phasor",
+    "LoopModel",
+    "TimingModel",
+    "build_loop_model",
+    "compute_phase_budget",
+    "compute_stability_metrics",
+    "verify_exact_hz_float32",
 ]

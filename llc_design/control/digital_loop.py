@@ -663,12 +663,22 @@ class ADCSamplingConfig:
 
 @dataclass(frozen=True)
 class CommandTimingConfig:
+    """Digital command path timing.
+
+    Ownership (do not double-count):
+    - ADCSamplingConfig owns acquisition/conversion (``eoc_delay_s``).
+    - This block owns ISR/compute + explicit PWM/shadow update delay.
+    - PWM zero-wait envelope models period-aligned load uncertainty only.
+    - ZOH is modelled in ``frequency_response`` when enabled — not as extra pure delay.
+    """
+
     computation_delay_s: float = 1.0e-6
+    pwm_update_delay_s: float = 0.0
     include_zero_order_hold: bool = True
 
     def validate(self) -> None:
-        if self.computation_delay_s < 0.0:
-            raise ValueError("computation delay cannot be negative")
+        if self.computation_delay_s < 0.0 or self.pwm_update_delay_s < 0.0:
+            raise ValueError("computation/pwm-update delays cannot be negative")
 
     @staticmethod
     def pwm_zero_wait_s(switching_frequency_hz: float, envelope: DelayEnvelope) -> float:
@@ -691,6 +701,7 @@ class CommandTimingConfig:
         return (
             adc.eoc_delay_s
             + self.computation_delay_s
+            + self.pwm_update_delay_s
             + self.pwm_zero_wait_s(switching_frequency_hz, envelope)
         )
 

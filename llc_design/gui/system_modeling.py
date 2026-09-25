@@ -1428,6 +1428,8 @@ def apply_definition_to_llc_window(window, definition: ControlSystemDefinition) 
             loop.count_mode.setCurrentIndex(index)
             break
     loop.computation_us.setValue(definition.timing.computation_delay_s * 1e6)
+    if hasattr(loop, "pwm_update_us"):
+        loop.pwm_update_us.setValue(definition.timing.pwm_update_delay_s * 1e6)
     loop.include_zoh.setChecked(definition.timing.include_zero_order_hold)
     if sensor.divider_upper_ohm > 0.0 and sensor.divider_lower_ohm > 0.0:
         loop.rup_k.setValue(sensor.divider_upper_ohm / 1e3)

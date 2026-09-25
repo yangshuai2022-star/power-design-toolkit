@@ -57,6 +57,7 @@ from ...control.digital_loop import (
 )
 from ...control.linearize import ControlInputKind
 from ...control.phase_budget import phase_budget
+from ...control.smart_control import build_loop_model
 from .bode_cursor import (
     BodeCursor,
     BodeCursorMeasurement,
@@ -520,11 +521,13 @@ class DigitalLoopView(QWidget):
         self.count_mode.addItem("Up-Down", PWMCountMode.UP_DOWN)
         self.count_mode.addItem("Up", PWMCountMode.UP)
         self.computation_us = self._double(0, 1000, 4, 1.0, " µs")
+        self.pwm_update_us = self._double(0, 1000, 4, 0.0, " µs")
         self.include_zoh = QCheckBox("包含 Zero-Order Hold")
         self.include_zoh.setChecked(True)
         form.addRow("TBCLK", self.timer_mhz)
         form.addRow("计数模式", self.count_mode)
         form.addRow("CLA 计算时间", self.computation_us)
+        form.addRow("PWM / shadow update", self.pwm_update_us)
         form.addRow(self.include_zoh)
         note = QLabel("PWM 命令在 Counter-Zero / Global-Load 生效；分析会给出最小、标称、最大 Zero 等待延迟。")
         note.setWordWrap(True); note.setStyleSheet(f"color:{theme.active_theme().text_muted};")
@@ -661,6 +664,14 @@ class DigitalLoopView(QWidget):
         fixed.setPointSize(10)
         self.text.setFont(fixed)
         self.result_tabs.addTab(self.text, "详细结果 / 差分方程")
+
+        self.loop_chain_text = QPlainTextEdit()
+        self.loop_chain_text.setReadOnly(True)
+        self.loop_chain_text.setFont(fixed)
+        self.loop_chain_text.setPlaceholderText(
+            "Smart Control V2：运行分析后显示 Loop Chain / Timing / Phase·Gain Budget / Evidence"
+        )
+        self.result_tabs.addTab(self.loop_chain_text, "Loop Chain / Evidence")
         layout.addWidget(self.result_tabs, 1)
         return panel
 
@@ -833,6 +844,7 @@ class DigitalLoopView(QWidget):
             )
             timing = CommandTimingConfig(
                 computation_delay_s=self.computation_us.value() * 1e-6,
+                pwm_update_delay_s=self.pwm_update_us.value() * 1e-6,
                 include_zero_order_hold=self.include_zoh.isChecked(),
             )
             self.analysis_requested.emit({
@@ -878,24 +890,41 @@ class DigitalLoopView(QWidget):
         ]
         self.cursor_status.setText("\n".join(lines))
         if self.result is not None:
-            labels = {
-                "controller": "Controller C(z)",
-                "fm_power_stage": "FM × Plant",
-                "sense_total": "Sense / ADC",
-                "open_loop_nominal": "Total open loop",
-            }
-            budget = phase_budget(
-                self.result.frequencies_hz, self.result.responses, labels,
-                measurement.frequency_hz,
-                ["controller", "fm_power_stage", "sense_total", "open_loop_nominal"],
-            )
-            self.phase_budget_label.setText(
-                "Phase budget @ " + format_frequency(measurement.frequency_hz) + "\n" +
-                " | ".join(
-                    f"{b.label}: {b.gain_db:+.2f} dB / {b.phase_deg:+.2f}°"
-                    for b in budget
+            from ...control.smart_control import compute_phase_budget
+            pbudget = compute_phase_budget(
+                self.result, frequency_hz=measurement.frequency_hz)
+            if pbudget is not None:
+                lines = [
+                    f"Phase budget @ {format_frequency(pbudget.frequency_hz)} "
+                    f"(Σ−L residual={pbudget.residual_deg:+.2f}° "
+                    f"{'OK' if pbudget.consistent else 'CHECK'})"
+                ]
+                lines.extend(
+                    f"{e.label}: {e.gain_db:+.2f} dB / {e.phase_deg:+.2f}°"
+                    for e in pbudget.entries
                 )
-            )
+                if pbudget.phase_margin_deg is not None:
+                    lines.append(f"PM={pbudget.phase_margin_deg:+.2f}°")
+                self.phase_budget_label.setText("\n".join(lines))
+            else:
+                labels = {
+                    "controller": "Controller C(z)",
+                    "fm_power_stage": "FM × Plant",
+                    "sense_total": "Sense / ADC",
+                    "open_loop_nominal": "Total open loop",
+                }
+                budget = phase_budget(
+                    self.result.frequencies_hz, self.result.responses, labels,
+                    measurement.frequency_hz,
+                    ["controller", "fm_power_stage", "sense_total", "open_loop_nominal"],
+                )
+                self.phase_budget_label.setText(
+                    "Phase budget @ " + format_frequency(measurement.frequency_hz) + "\n" +
+                    " | ".join(
+                        f"{b.label}: {b.gain_db:+.2f} dB / {b.phase_deg:+.2f}°"
+                        for b in budget
+                    )
+                )
 
     @staticmethod
     def _magnitude(response: np.ndarray) -> np.ndarray:
@@ -1057,6 +1086,87 @@ class DigitalLoopView(QWidget):
         ]
         text.extend(f"- {warning}" for warning in r.warnings)
         self.text.setPlainText("\n".join(text))
+        self._update_loop_chain_view()
+
+    def _update_loop_chain_view(self) -> None:
+        if self.result is None:
+            self.loop_chain_text.clear()
+            return
+        model = build_loop_model(self.result)
+        stab = model.stability
+        lines = [
+            "Smart Control V2 — Exact Loop Chain",
+            "=" * 72,
+            " → ".join(model.chain_labels),
+            "",
+            "Blocks",
+            "-" * 72,
+        ]
+        for block in model.blocks:
+            delay = "—" if block.delay_s is None else f"{block.delay_s * 1e6:.4g} µs"
+            lines.append(
+                f"  {block.name:22s} [{block.domain.value}] "
+                f"src={block.source} status={block.status.value} delay={delay}"
+            )
+            if block.notes:
+                lines.append(f"    {block.notes}")
+        t = model.timing
+        lines += [
+            "",
+            "TimingModel (unique ownership)",
+            "-" * 72,
+            f"  ADC EOC / sampling     {t.sampling_delay_s * 1e6:.4g} µs",
+            f"  ADC acquisition         {t.adc_acquisition_time_s * 1e6:.4g} µs",
+            f"  ADC conversion         {t.adc_conversion_time_s * 1e6:.4g} µs",
+            f"  Compute                {t.compute_time_s * 1e6:.4g} µs",
+            f"  PWM update             {t.pwm_update_delay_s * 1e6:.4g} µs",
+            f"  PWM zero-wait (nom)    {t.pwm_zero_wait_nominal_s * 1e6:.4g} µs",
+            f"  ZOH half-sample        {t.zoh_half_sample_s * 1e6:.4g} µs "
+            f"(FR only; include_zoh={t.include_zoh})",
+            f"  total min/nom/max      "
+            f"{t.total_min_s * 1e6:.4g} / {t.total_nominal_s * 1e6:.4g} / "
+            f"{t.total_max_s * 1e6:.4g} µs",
+            "",
+            "Stability metrics",
+            "-" * 72,
+            f"  Fc={stab.margins.critical_gain_crossover_hz}  "
+            f"PM={stab.margins.phase_margin_deg}  GM={stab.margins.gain_margin_db}",
+            f"  Ms={stab.ms:.4g}  Mt={stab.mt:.4g}  "
+            f"poles_stable={stab.pole_stable}  status={stab.status.value}",
+            f"  gain crossovers={list(stab.margins.gain_crossovers_hz)}",
+            f"  phase crossovers={list(stab.margins.phase_crossovers_hz)}",
+            f"  sampling Fs/Fc={model.sampling.fs_over_fc}  "
+            f"status={model.sampling.status.value}",
+            f"  headroom PCMD={model.headroom.command_pu:.5g} "
+            f"sat={model.headroom.saturated}",
+        ]
+        if model.phase_budget is not None:
+            pb = model.phase_budget
+            lines += [
+                "",
+                f"Phase budget @ Fc={pb.frequency_hz:.6g} Hz  "
+                f"consistent={pb.consistent} residual={pb.residual_deg:+.3f}°",
+                "-" * 72,
+            ]
+            for e in pb.entries:
+                lines.append(f"  {e.label:28s} {e.phase_deg:+8.2f}°  {e.gain_db:+8.2f} dB")
+            lines.append(f"  {'Σ blocks':28s} {pb.total_phase_deg:+8.2f}°")
+            lines.append(f"  {'Open loop':28s} {pb.open_loop_phase_deg:+8.2f}°")
+            if pb.phase_margin_deg is not None:
+                lines.append(f"  {'PM':28s} {pb.phase_margin_deg:+8.2f}°")
+        if model.gain_budget is not None:
+            gb = model.gain_budget
+            lines += [
+                "",
+                f"Gain budget @ Fc  consistent={gb.consistent} residual={gb.residual_db:+.3f} dB",
+                f"  Σ={gb.total_gain_db:+.3f} dB  open={gb.open_loop_gain_db:+.3f} dB",
+            ]
+        lines += ["", "Evidence / falsification", "-" * 72]
+        for ev in model.evidence:
+            lines.append(f"  [{ev.status.value}] {ev.metric} = {ev.value}")
+            lines.append(f"    blocks={', '.join(ev.source_blocks)}")
+            lines.append(f"    falsify: {ev.falsification_condition}")
+        self.loop_chain_text.setPlainText("\n".join(lines))
 
 
 __all__ = ["DigitalLoopView"]
