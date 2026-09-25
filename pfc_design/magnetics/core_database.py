@@ -4,30 +4,44 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-
 from .core_entry import CoreSpec
 from .steinmetz import SteinmetzMaterial
+from .user_core_library import UserCoreLibrary
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 class CoreDatabase:
-    """Searchable database of toroidal core specifications."""
+    """Searchable database of toroidal core specifications.
 
-    def __init__(self, cores_file: Optional[str] = None):
+    Built-in ``cores.json`` records stay read-only.  Optional user overlays from
+    :class:`UserCoreLibrary` may add part numbers that do not shadow built-ins.
+    """
+
+    def __init__(
+        self,
+        cores_file: Optional[str] = None,
+        *,
+        user_path: str | Path | None = None,
+        include_user: bool = True,
+    ):
         if cores_file is None:
             cores_file = str(DATA_DIR / "cores.json")
+        self._builtin: list[CoreSpec] = []
+        self._user: list[CoreSpec] = []
         self._cores: list[CoreSpec] = []
         self._steinmetz: dict[str, SteinmetzMaterial] = {}
+        self._builtin_names: set[str] = set()
+        self.user_library = UserCoreLibrary(user_path) if include_user else None
         self._load_cores(cores_file)
         self._load_steinmetz()
+        self._merge_user()
 
     def _load_cores(self, path: str):
         with open(path) as f:
             data = json.load(f)
         for entry in data["cores"]:
-            self._cores.append(CoreSpec(
+            core = CoreSpec(
                 manufacturer=entry["manufacturer"],
                 part_number=entry["part_number"],
                 material=entry["material"],
@@ -45,7 +59,9 @@ class CoreDatabase:
                 dc_bias_coeffs=entry.get("dc_bias_coeffs", [100, -2.0, 0.04, -0.0003, 0.0]),
                 price_usd=entry.get("price_usd"),
                 source_url=entry.get("source_url"),
-            ))
+            )
+            self._builtin.append(core)
+            self._builtin_names.add(core.part_number.casefold())
 
     def _load_steinmetz(self):
         path = str(DATA_DIR / "steinmetz_coefficients.json")
@@ -57,6 +73,28 @@ class CoreDatabase:
                 f_min_khz=coeffs["f_range_kHz"][0], f_max_khz=coeffs["f_range_kHz"][1]
             )
 
+    def _merge_user(self) -> None:
+        self._user = []
+        if self.user_library is not None:
+            self.user_library.refresh()
+            for core in self.user_library.cores:
+                if core.part_number.casefold() in self._builtin_names:
+                    raise ValueError(
+                        f"user core '{core.part_number}' shadows a built-in record; rename the user part"
+                    )
+                self._user.append(core)
+            for name, mat in self.user_library.steinmetz.items():
+                if name not in self._steinmetz:
+                    self._steinmetz[name] = mat
+        self._cores = list(self._builtin) + list(self._user)
+
+    def refresh_user(self) -> None:
+        self._merge_user()
+
+    def is_user(self, part_number: str) -> bool:
+        folded = part_number.casefold()
+        return any(c.part_number.casefold() == folded for c in self._user)
+
     @property
     def cores(self) -> list[CoreSpec]:
         return self._cores
@@ -65,11 +103,9 @@ class CoreDatabase:
         """Get Steinmetz material model by name, with fuzzy matching."""
         if material_name in self._steinmetz:
             return self._steinmetz[material_name]
-        # Try case-insensitive
         for name, mat in self._steinmetz.items():
             if name.lower() == material_name.lower():
                 return mat
-        # Try substring match
         for name, mat in self._steinmetz.items():
             if material_name.lower() in name.lower():
                 return mat
@@ -77,6 +113,7 @@ class CoreDatabase:
 
     def query(self,
               material_class: Optional[str] = None,
+              manufacturer: Optional[str] = None,
               od_min_mm: Optional[float] = None,
               od_max_mm: Optional[float] = None,
               ae_min_cm2: Optional[float] = None,
@@ -92,6 +129,8 @@ class CoreDatabase:
         results = []
         for core in self._cores:
             if material_class and core.material_class.lower() != material_class.lower():
+                continue
+            if manufacturer and manufacturer.casefold() not in core.manufacturer.casefold():
                 continue
             if od_min_mm is not None and core.od_mm < od_min_mm:
                 continue

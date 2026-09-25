@@ -1,9 +1,10 @@
 @echo off
 setlocal
-title Power Design Tool V6 (LLC + PFC)
+title Power Design Toolkit
 pushd "%~dp0"
 
 chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 
 rem Locate Python 3: prefer the py launcher, fall back to python
 set "PYCMD="
@@ -16,7 +17,7 @@ if not defined PYCMD (
     if not errorlevel 1 set "PYCMD=python"
 )
 if not defined PYCMD (
-    echo [ERROR] Python 3 ^(>=3.10^) not found.
+    echo [ERROR] Python 3 ^(^>=3.10^) not found.
     echo Please install from https://www.python.org/downloads/windows/
     echo and check "Add python.exe to PATH" during setup.
     pause
@@ -36,6 +37,11 @@ if errorlevel 1 (
 )
 
 :launch
-echo [INFO] Launching Power Design Tool GUI...
+echo [INFO] Launching Power Design Toolkit GUI...
 %PYCMD% -m llc_design gui
-exit /b %errorlevel%
+set "RC=%errorlevel%"
+if not "%RC%"=="0" (
+    echo [ERROR] Launch failed ^(exit=%RC%^).
+    pause
+)
+exit /b %RC%

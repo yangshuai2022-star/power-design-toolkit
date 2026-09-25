@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "policy": "docs/ENGINEERING_DATA.md",
+  "note": "Brand taxonomy only. Calculable built-in catalog parts require manufacturer datasheet geometry, bias and loss evidence. Empty brand buckets must not invent part numbers or fit coefficients.",
+  "brands": [
+    {
+      "id": "magnetics-inc",
+      "display_name": "Magnetics Inc.",
+      "aliases": ["Magnetics", "Mag-Inc"],
+      "domains": ["powder-core", "pfc-inductor"],
+      "calculable_builtin_parts": "see pfc_design/data/cores.json HighFlux / Sendust / MPP records"
+    },
+    {
+      "id": "ferroxcube",
+      "display_name": "Ferroxcube",
+      "aliases": ["Ferroxcube"],
+      "domains": ["ferrite", "pfc-inductor"],
+      "calculable_builtin_parts": "see pfc_design/data/cores.json Ferrite records when Steinmetz coefficients exist"
+    },
+    {
+      "id": "tdk-epcos",
+      "display_name": "TDK / EPCOS",
+      "aliases": ["TDK", "EPCOS", "TDK/EPCOS-class"],
+      "domains": ["ferrite", "llc-transformer"],
+      "calculable_builtin_parts": "see llc_design/data/cores.json and materials.json reference records"
+    },
+    {
+      "id": "pocc",
+      "display_name": "铂科 / POCO Magnetic",
+      "aliases": ["铂科", "POCO", "POCC"],
+      "domains": ["powder-core", "pfc-inductor"],
+      "calculable_builtin_parts": [],
+      "status": "brand-placeholder",
+      "note": "No calculable built-in part numbers are shipped until a specific manufacturer datasheet supplies geometry, DC-bias and core-loss evidence. Users may store verified private records in the user core library."
+    },
+    {
+      "id": "dongmu-keda",
+      "display_name": "东睦科达",
+      "aliases": ["东睦科达", "Dongmu", "Keda", "DMKD"],
+      "domains": ["powder-core", "pfc-inductor"],
+      "calculable_builtin_parts": [],
+      "status": "brand-placeholder",
+      "note": "No calculable built-in part numbers are shipped until a specific manufacturer datasheet supplies geometry, DC-bias and core-loss evidence. Users may store verified private records in the user core library."
+    }
+  ]
+}

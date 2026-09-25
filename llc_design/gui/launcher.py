@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import textwrap
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from llc_design import __version__
 from llc_design.core.spec import LLCDesignSpec
 from llc_design.gui import theme
 from llc_design.gui.help import show_help
@@ -27,6 +27,7 @@ from llc_design.gui.system_modeling import (
     SystemModelingDesignDialog,
     apply_definition_to_llc_window,
     apply_definition_to_ttpl_window,
+    install_guided_context_actions,
 )
 from pfc_design.gui.main_window import PFCMainWindow
 from pfc_design.gui.solution_map_install import install_ttpl_solution_map
@@ -34,6 +35,80 @@ from power_control_tools.gui.fra_advanced import install_advanced_fra_actions
 from power_control_tools.gui.fra_loop_designer import FRALoopDesignerWindow
 from power_control_tools.gui.main_window import ControlToolsMainWindow
 from power_control_tools.system_definition import SystemTopology
+
+
+class _LauncherCard(QFrame):
+    """CAE-style entry card used by the workspace selector."""
+
+    def __init__(
+        self,
+        title: str,
+        description: str,
+        *,
+        primary: bool = False,
+        badge: str = "",
+        cta: str = "",
+        object_name: str = "",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        palette = theme.active_theme()
+        if object_name:
+            self.setObjectName(object_name)
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        border = palette.accent if primary else palette.border_card
+        border_w = 3 if primary else 1
+        self.setStyleSheet(
+            f"QFrame#{object_name or 'launcher_card'} {{"
+            f"background:{palette.surface}; border:{border_w}px solid {border};"
+            f"border-radius:14px;}}"
+            f"QFrame#{object_name or 'launcher_card'}:hover {{"
+            f"border-color:{palette.accent}; background:{palette.hover};}}"
+        )
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 18, 22, 18)
+        root.setSpacing(8)
+        if badge:
+            chip = QLabel(badge)
+            chip.setStyleSheet(
+                f"color:{palette.accent}; font-size:11px; font-weight:700;"
+                f"letter-spacing:0.4px; border:none; background:transparent;"
+            )
+            root.addWidget(chip)
+        title_label = QLabel(title)
+        title_label.setWordWrap(True)
+        title_label.setStyleSheet(
+            f"font-size:{20 if primary else 16}px; font-weight:700;"
+            f"color:{palette.text_strong}; border:none; background:transparent;"
+        )
+        root.addWidget(title_label)
+        desc = QLabel(description)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(
+            f"font-size:13px; color:{palette.text_muted}; border:none; background:transparent;"
+        )
+        root.addWidget(desc)
+        root.addStretch(1)
+        self.button = QPushButton(cta or ("Start" if primary else t("进入")))
+        self.button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.button.setMinimumHeight(36 if primary else 32)
+        self.button.setStyleSheet(
+            "QPushButton {"
+            f"font-size:14px; font-weight:650; border-radius:8px; padding:8px 18px;"
+            f"background:{palette.accent if primary else palette.surface_alt};"
+            f"color:{'#ffffff' if primary else palette.text_strong};"
+            f"border:1px solid {palette.accent if primary else palette.border_input};"
+            "}"
+            f"QPushButton:hover {{background:{palette.pressed if primary else palette.hover};}}"
+        )
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.button)
+        root.addLayout(row)
+        if primary:
+            self.setMinimumHeight(168)
+        else:
+            self.setMinimumHeight(148)
 
 
 class WorkspaceSelectionDialog(QDialog):
@@ -48,9 +123,12 @@ class WorkspaceSelectionDialog(QDialog):
         self.setStyleSheet(theme.launcher_stylesheet(theme.active_theme()))
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(28, 24, 28, 20)
+        root.setSpacing(14)
+
         title = QLabel(t("请选择进入的设计工作区"))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 25px; font-weight: 650; padding: 14px;")
+        title.setStyleSheet("font-size: 25px; font-weight: 650; padding: 4px;")
         root.addWidget(title)
 
         subtitle = QLabel(
@@ -59,55 +137,71 @@ class WorkspaceSelectionDialog(QDialog):
         )
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("font-size: 14px; padding: 2px 30px 14px 30px;")
+        subtitle.setStyleSheet("font-size: 13px; padding: 0 40px 8px 40px;")
         root.addWidget(subtitle)
 
-        choices = QGridLayout()
-        choices.setHorizontalSpacing(24)
-        choices.setVerticalSpacing(16)
-
-        system_button = self._choice_button(
+        guided = _LauncherCard(
             t("系统建模与设计 / Guided System Design"),
-            t("V9.3 主入口：拓扑 → 功率级 → 采样/滤波 → ADC/PWM/延时 → 控制器意图 → 系统复核 → 完整分析"),
-            minimum_height=145,
+            t("从功率级、采样、ADC、PWM 到完整闭环的逐步建模"),
+            primary=True,
+            badge=f"V{__version__} PRIMARY ENTRY",
+            cta="Start",
+            object_name="guided_system_design_button",
         )
-        system_button.setObjectName("guided_system_design_button")
-        system_button.setStyleSheet(
-            system_button.styleSheet()
-            + f"QPushButton#guided_system_design_button {{border: 3px solid {theme.active_theme().accent};}}"
-        )
-        system_button.clicked.connect(lambda: self._select("system_modeling"))
-        choices.addWidget(system_button, 0, 0, 1, 2)
+        # Keep findChild(QPushButton, ...) working for existing smoke tests.
+        guided.button.setObjectName("guided_system_design_button")
+        guided.setObjectName("guided_system_design_card")
+        guided.button.clicked.connect(lambda: self._select("system_modeling"))
+        root.addWidget(guided)
 
-        llc_button = self._choice_button(
+        expert_label = QLabel("Expert Workspaces")
+        expert_label.setStyleSheet(
+            f"font-size:12px; font-weight:700; letter-spacing:0.6px;"
+            f"color:{theme.active_theme().text_muted}; padding-top:6px;"
+        )
+        root.addWidget(expert_label)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(14)
+
+        llc = _LauncherCard(
             t("进入 LLC 设计（Expert）"),
             t("谐振腔、磁性器件、损耗、开关波形、小信号与数字电压环"),
-            minimum_height=140,
+            badge="EXPERT",
+            cta=t("进入 LLC"),
+            object_name="llc_expert_card",
         )
-        pfc_button = self._choice_button(
+        pfc = _LauncherCard(
             t("进入 PFC 设计（Expert）"),
             t("单相 TTPL + 三相 Vienna：硬件设计、控制、采样链、Bode、AC/开关波形与 PF/THD"),
-            minimum_height=140,
+            badge="EXPERT",
+            cta=t("进入 PFC"),
+            object_name="pfc_expert_card",
         )
-        control_button = self._choice_button(
+        control = _LauncherCard(
             t("进入 Control Tools"),
             t("S2Z、数字滤波器、Bode、Step/Impulse、P/Z、SOS 与 C99 float32_t 导出"),
-            minimum_height=140,
+            badge="EXPERT",
+            cta=t("进入 Control Tools"),
+            object_name="control_tools_card",
         )
-        fra_button = self._choice_button(
+        fra = _LauncherCard(
             t("进入 FRA Loop Designer"),
             t("Bode100 / SIMPLIS / Generic：Equivalent Plant、Auto Design、Model ID、稳定性与 C99"),
-            minimum_height=140,
+            badge="EXPERT",
+            cta=t("进入 FRA Loop Designer"),
+            object_name="fra_designer_card",
         )
-        llc_button.clicked.connect(lambda: self._select("llc"))
-        pfc_button.clicked.connect(lambda: self._select("pfc"))
-        control_button.clicked.connect(lambda: self._select("control"))
-        fra_button.clicked.connect(lambda: self._select("fra"))
-        choices.addWidget(llc_button, 1, 0)
-        choices.addWidget(pfc_button, 1, 1)
-        choices.addWidget(control_button, 2, 0)
-        choices.addWidget(fra_button, 2, 1)
-        root.addLayout(choices, 1)
+        llc.button.clicked.connect(lambda: self._select("llc"))
+        pfc.button.clicked.connect(lambda: self._select("pfc"))
+        control.button.clicked.connect(lambda: self._select("control"))
+        fra.button.clicked.connect(lambda: self._select("fra"))
+        grid.addWidget(llc, 0, 0)
+        grid.addWidget(pfc, 0, 1)
+        grid.addWidget(control, 1, 0)
+        grid.addWidget(fra, 1, 1)
+        root.addLayout(grid, 1)
 
         cancel = QPushButton(t("退出"))
         cancel.clicked.connect(self.reject)
@@ -122,32 +216,6 @@ class WorkspaceSelectionDialog(QDialog):
         root.addLayout(footer)
         shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.HelpContents), self)
         shortcut.activated.connect(lambda: show_help(self, "selector"))
-
-    @staticmethod
-    def _choice_button(title: str, description: str, *, minimum_height: int = 170) -> QPushButton:
-        """Create a launcher card whose localized description cannot overflow."""
-
-        palette = theme.active_theme()
-        wrapped_description = "\n".join(
-            textwrap.wrap(
-                description,
-                width=45,
-                break_long_words=True,
-                break_on_hyphens=False,
-            )
-        )
-        button = QPushButton(f"{title}\n\n{wrapped_description}")
-        button.setMinimumSize(500, minimum_height)
-        button.setStyleSheet(
-            "QPushButton {"
-            f"font-size: 16px; font-weight: 600; text-align: center;"
-            f"padding: 20px; border: 2px solid {palette.border_input}; border-radius: 10px;"
-            f"background: {palette.surface_alt}; color: {palette.text_strong};"
-            "}"
-            f"QPushButton:hover {{background: {palette.hover}; border-color: {palette.accent};}}"
-            f"QPushButton:pressed {{background: {palette.pressed};}}"
-        )
-        return button
 
     def _select(self, workspace: str) -> None:
         self.selected_workspace = workspace
@@ -175,6 +243,14 @@ class WorkspaceApplicationController:
         self.control_window.digital_design_updated.connect(self.llc_window.set_external_control_design)
         self.control_window.digital_design_updated.connect(
             lambda digital, label="": self.llc_window.refresh_closed_loop_controller()
+        )
+        install_guided_context_actions(
+            self.llc_window,
+            lambda: self._edit_guided_definition("llc"),
+        )
+        install_guided_context_actions(
+            self.pfc_window,
+            lambda: self._edit_guided_definition("pfc"),
         )
 
     def start(self) -> bool:
@@ -212,10 +288,15 @@ class WorkspaceApplicationController:
         target.raise_()
         target.activateWindow()
 
-    def _run_system_modeling(self, previous: str | None) -> bool:
+    def _run_system_modeling(
+        self,
+        previous: str | None,
+        *,
+        seed_definition=None,
+    ) -> bool:
         """Run V9.3 guided definition, then hand off to maintained engines."""
         self._hide_all()
-        wizard = SystemModelingDesignDialog()
+        wizard = SystemModelingDesignDialog(initial_definition=seed_definition)
         if wizard.exec() != QDialog.DialogCode.Accepted or wizard.definition is None:
             if previous is not None:
                 self.show_workspace(previous)
@@ -225,20 +306,20 @@ class WorkspaceApplicationController:
         if definition.topology == SystemTopology.LLC:
             apply_definition_to_llc_window(self.llc_window, definition)
             self.show_workspace("llc")
-            # Reuse the mature system analyzer; the wizard never reimplements
-            # the LLC equations.  Digital-loop analysis remains available on
-            # its existing page with the guided sampling/PWM fields populated.
             self.llc_window.run_design()
             return True
         if definition.topology == SystemTopology.TTPL_PFC:
             config = apply_definition_to_ttpl_window(self.pfc_window, definition)
             self.pfc_window.subtabs.setCurrentIndex(0)
             self.show_workspace("pfc")
-            # TTPL already has a single complete analysis entry that builds
-            # Bode + line cycle + switching and hands exact H(z) downstream.
             self.pfc_window.run_ttpl_analysis(config)
             return True
         raise NotImplementedError(f"unsupported V9.3 guided topology: {definition.topology.value}")
+
+    def _edit_guided_definition(self, workspace: str) -> None:
+        window = self.llc_window if workspace == "llc" else self.pfc_window
+        seed = getattr(window, "guided_system_definition", None)
+        self._run_system_modeling(previous=workspace, seed_definition=seed)
 
     def _handle_request(self, workspace: str) -> None:
         if workspace == "home":

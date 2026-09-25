@@ -32,6 +32,7 @@ from power_control_tools.codegen import export_c99_filter, render_c99_single_fil
 from power_control_tools.controllers import CONTROLLER_LABELS, controller_parameter_keys, design_controller
 from power_control_tools.discretize import discretize_transfer_function
 from power_control_tools.filters import design_iir_filter, design_fir_filter, design_moving_average, design_dc_blocker
+from power_control_tools.gui.type_compensator_schematic import TypeCompensatorSchematic
 from power_control_tools.models import ControllerKind, DiscretizationMethod, FilterResponse, IIRFamily, StabilityClass
 
 
@@ -192,6 +193,8 @@ class ControlToolsMainWindow(QMainWindow):
         for label, widget in fields:
             if isinstance(widget, SliderSpin) or isinstance(widget, QComboBox): self._hook(widget)
             f.addRow(label, widget)
+        self.type_schematic = TypeCompensatorSchematic()
+        f.addRow(self.type_schematic)
         return page
 
     def _build_filter_page(self):
@@ -237,6 +240,11 @@ class ControlToolsMainWindow(QMainWindow):
         keys = controller_parameter_keys(kind, type_input_mode=self.type_input_mode.currentData())
         visible = {self.ctrl, *(self._controller_widget_for(key) for key in keys)}
         for widget in self.ctrl_fields: self._field_visible(self.ctrl_form, widget, widget in visible)
+        show_schematic = kind in (ControllerKind.TYPE_II, ControllerKind.TYPE_III)
+        if hasattr(self, "type_schematic"):
+            self.type_schematic.setVisible(show_schematic)
+            if show_schematic:
+                self._refresh_type_schematic()
 
         impl = self.filter_impl.currentText(); response = self.response.currentData()
         fv = {self.filter_impl}
@@ -283,6 +291,25 @@ class ControlToolsMainWindow(QMainWindow):
             type_input_mode=self.type_input_mode.currentData(), r1_ohm=self.r1.value(), r2_ohm=self.r2.value(), r3_ohm=self.r3.value(),
             c1_f=self.c1_nf.value()*1e-9, c2_f=self.c2_nf.value()*1e-9, c3_f=self.c3_nf.value()*1e-9,
         )
+
+    def _refresh_type_schematic(self) -> None:
+        if not hasattr(self, "type_schematic"):
+            return
+        kind = self.ctrl.currentData()
+        if kind not in (ControllerKind.TYPE_II, ControllerKind.TYPE_III):
+            return
+        mode = str(self.type_input_mode.currentData() or "pz")
+        values = {}
+        if mode == "rc":
+            values = {
+                "R1": f"{self.r1.value():.4g} Ω",
+                "R2": f"{self.r2.value():.4g} Ω",
+                "R3": f"{self.r3.value():.4g} Ω",
+                "C1": f"{self.c1_nf.value():.4g} nF",
+                "C2": f"{self.c2_nf.value():.4g} nF",
+                "C3": f"{self.c3_nf.value():.4g} nF",
+            }
+        self.type_schematic.set_state(kind=kind.value, mode=mode, values=values)
 
     def _design(self):
         fs = self.fs.value()
@@ -341,6 +368,7 @@ class ControlToolsMainWindow(QMainWindow):
     def recalculate(self):
         try:
             self._update_dynamic_visibility(); a, d = self._design(); self._update_live_transfer(a, d)
+            self._refresh_type_schematic()
             r = analyze_digital_filter(d, analog=a, response_samples=400)
             self.current_analog = a; self.current_digital = d; self.current_analysis = r; self._render()
             if self.design_pages.currentIndex() == 0:

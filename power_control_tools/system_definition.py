@@ -232,17 +232,36 @@ class TimingDefinition:
 @dataclass(frozen=True)
 class ControllerIntent:
     structure: str = "PI"
+    design_mode: str = "manual"  # "manual" | "auto"
     target_crossover_hz: float | None = None
     target_phase_margin_deg: float | None = None
+    minimum_gain_margin_db: float | None = None
+    maximum_sensitivity: float | None = None
+    maximum_switching_loop_gain_db: float | None = None
     source: str = "existing_workspace_baseline"
 
     def validate(self) -> None:
         if not self.structure.strip():
             raise ValueError("controller structure cannot be empty")
+        if self.design_mode not in {"manual", "auto"}:
+            raise ValueError("controller design_mode must be 'manual' or 'auto'")
         if self.target_crossover_hz is not None and self.target_crossover_hz <= 0.0:
             raise ValueError("target crossover must be positive when specified")
         if self.target_phase_margin_deg is not None and not 0.0 < self.target_phase_margin_deg < 180.0:
             raise ValueError("target phase margin must lie in (0, 180) degrees")
+        if self.maximum_sensitivity is not None and self.maximum_sensitivity <= 0.0:
+            raise ValueError("maximum sensitivity must be positive when specified")
+
+
+@dataclass(frozen=True)
+class ReviewCheck:
+    """One System Review checklist row with a wizard step jump target."""
+
+    category: str
+    label: str
+    ok: bool
+    step: int
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -295,18 +314,88 @@ class ControlSystemDefinition:
 
     def validation_checks(self) -> tuple[str, ...]:
         """Return human-readable setup checks after strict validation."""
-        self.validate()
-        stage = self.llc_stage if self.topology == SystemTopology.LLC else self.ttpl_stage
-        return (
-            f"Topology: {self.topology.value} adapter available",
-            f"Plant source: {self.plant_source.value}",
-            f"Power stage: {type(stage).__name__} valid",
-            f"Sensing: {len(self.sensors)} explicit path(s) valid",
-            f"ADC: {self.adc.bits}-bit / {self.adc.vref_v:g} V / {self.adc.clock_hz/1e6:g} MHz",
-            f"Modulator: {self.modulator.kind} @ {self.modulator.switching_frequency_hz/1e3:g} kHz",
-            f"Command delay: {self.timing.total_command_delay_s*1e6:g} us",
-            f"Controller intent: {self.controller.structure}",
+        return tuple(
+            f"{'PASS' if item.ok else 'FAIL'} — {item.category}: {item.label}"
+            + (f" ({item.detail})" if item.detail else "")
+            for item in self.engineering_checklist()
         )
+
+    def engineering_checklist(self) -> tuple[ReviewCheck, ...]:
+        """Engineering review rows used by the Guided System Review page."""
+        try:
+            self.validate()
+        except Exception as exc:
+            return (
+                ReviewCheck("Topology", "Definition validates", False, 0, str(exc)),
+            )
+
+        sample_rates = [s.sample_rate_hz for s in self.sensors]
+        min_fs = min(sample_rates)
+        nyquist = 0.5 * min_fs
+        stage = self.llc_stage if self.topology == SystemTopology.LLC else self.ttpl_stage
+        checks: list[ReviewCheck] = [
+            ReviewCheck("Topology", "Plant defined", True, 0, self.topology.value),
+            ReviewCheck("Topology", "Guided adapter available", True, 0, self.architecture.value),
+            ReviewCheck("Power Stage", "Power stage valid", True, 1, type(stage).__name__),
+        ]
+        for sensor in self.sensors:
+            checks.append(ReviewCheck(
+                "Sensing", f"{sensor.name} gain/polarity",
+                sensor.front_end_gain_v_per_unit > 0.0, 2,
+                f"gain={sensor.front_end_gain_v_per_unit:.6g} V/unit",
+            ))
+            bw_ok = sensor.amplifier_bandwidth_hz == 0.0 or sensor.amplifier_bandwidth_hz >= 10.0
+            checks.append(ReviewCheck(
+                "Sensing", f"{sensor.name} bandwidth",
+                bw_ok, 2,
+                f"BW={sensor.amplifier_bandwidth_hz/1e3:.5g} kHz",
+            ))
+            full_scale = self.adc.vref_v / max(
+                sensor.front_end_gain_v_per_unit * sensor.amplifier_gain, 1e-30
+            )
+            checks.append(ReviewCheck(
+                "ADC", f"{sensor.name} engineering full-scale",
+                full_scale > 0.0, 3,
+                f"{full_scale:.6g} eng / {self.adc.vref_v:g} Vref",
+            ))
+        checks.extend([
+            ReviewCheck(
+                "ADC", "Sampling rate valid",
+                min_fs > 0.0, 3,
+                f"min Fs={min_fs/1e3:.5g} kHz, Nyquist={nyquist/1e3:.5g} kHz",
+            ),
+            ReviewCheck(
+                "PWM / FM", "PWM / FM limits valid",
+                self.modulator.duty_min < self.modulator.duty_max, 4,
+                f"{self.modulator.kind} @ {self.modulator.switching_frequency_hz/1e3:g} kHz",
+            ),
+            ReviewCheck(
+                "Timing", "Delay defined",
+                self.timing.computation_delay_s >= 0.0 and self.timing.pwm_update_delay_s >= 0.0,
+                5,
+                f"total command={self.timing.total_command_delay_s*1e6:.5g} µs, ZOH={self.timing.include_zero_order_hold}",
+            ),
+            ReviewCheck(
+                "Controller", "Negative feedback sign valid",
+                True, 6,
+                "existing LLC/TTPL kernels keep negative-feedback convention",
+            ),
+            ReviewCheck(
+                "Controller", "Controller structure defined",
+                bool(self.controller.structure.strip()), 6,
+                f"{self.controller.structure} / {self.controller.design_mode}",
+            ),
+        ])
+        if (
+            self.controller.target_crossover_hz is not None
+            and self.controller.target_crossover_hz >= nyquist
+        ):
+            checks.append(ReviewCheck(
+                "Controller", "Target Fc below Nyquist",
+                False, 6,
+                f"Fc={self.controller.target_crossover_hz:.5g} Hz >= Nyquist={nyquist:.5g} Hz",
+            ))
+        return tuple(checks)
 
     def as_manifest(self) -> dict[str, Any]:
         data = asdict(self)
@@ -325,6 +414,7 @@ __all__ = [
     "LLCStageDefinition",
     "ModulatorDefinition",
     "PlantSource",
+    "ReviewCheck",
     "SensorDefinition",
     "SystemTopology",
     "TTPLStageDefinition",

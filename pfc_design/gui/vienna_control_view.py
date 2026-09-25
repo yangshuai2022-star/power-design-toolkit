@@ -439,6 +439,20 @@ class ViennaControlLabView(QWidget):
         self.tabs.setCurrentIndex(self._inductor_result_index)
 
     def _apply_inductor_design(self, result) -> None:
+        from pfc_design.magnetics import FerriteInductorResult
+        if isinstance(result, FerriteInductorResult):
+            l_uh = result.inductance_h * 1e6
+            r_mohm = (result.copper_loss_w / max(result.phase_current_rms_a ** 2, 1e-18)) * 1e3
+            self.lphase.setValue(l_uh)
+            self.rphase.setValue(r_mohm)
+            QMessageBox.information(
+                self, "Vienna 相电感参数已应用",
+                f"Ferrite Phase L = {l_uh:.3f} µH\n"
+                f"Estimated DCR from copper loss = {r_mohm:.3f} mΩ\n"
+                f"Inductor-self loss = {result.total_inductor_loss_w:.3f} W "
+                f"(not converter system loss)\n\n"
+                "已写回 Vienna 功率级；建议重新运行完整分析。")
+            return
         self.lphase.setValue(result.l_full_load_peak_uh)
         self.rphase.setValue(result.rdc_hot_ohm * 1e3)
         QMessageBox.information(

@@ -1,16 +1,27 @@
 #!/bin/bash
-# 电源设计工具 V6 - macOS 一键启动图形界面 (LLC + PFC 工作台)
-# 位置: 放在 power_design_tool_v6 目录内, 双击即可打开 GUI
+# Power Design Toolkit - macOS one-click GUI launcher
+# Place in the repo root; double-click to open the workspace GUI.
 
 cd "$(dirname "$0")" || exit 1
 
-# 定位 Python: 优先本目录 .venv, 其次专用 venv, 最后系统 python3
+# Keep Chinese/English messages readable in Terminal.app
+export LANG="${LANG:-zh_CN.UTF-8}"
+export LC_ALL="${LC_ALL:-zh_CN.UTF-8}"
+export PYTHONIOENCODING=utf-8
+
+# Prefer known project envs, then local .venv, then PATH python3
 PY=""
-if [ -x "./.venv/bin/python" ]; then
-    PY="./.venv/bin/python"
-elif [ -x "/Users/yangshuai/venvs/sci/bin/python" ]; then
-    PY="/Users/yangshuai/venvs/sci/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
+for candidate in \
+    "/Users/yangshuai/Applications/Python_Envs/power-tools-py312/bin/python" \
+    "/Users/yangshuai/venvs/sci/bin/python" \
+    "./.venv/bin/python"
+do
+    if [ -x "$candidate" ]; then
+        PY="$candidate"
+        break
+    fi
+done
+if [ -z "$PY" ] && command -v python3 >/dev/null 2>&1; then
     PY="$(command -v python3)"
 fi
 
@@ -20,7 +31,7 @@ if [ -z "$PY" ]; then
     exit 1
 fi
 
-# 首次运行: 自动安装本工具包 (含 GUI 依赖)
+# First run: install package + GUI deps if missing
 if ! "$PY" -c "import llc_design, pfc_design, PySide6" >/dev/null 2>&1; then
     echo "首次运行: 正在安装 power-design-toolkit (含 GUI 依赖) ..."
     if ! "$PY" -m pip install -e ".[gui]"; then
@@ -39,5 +50,11 @@ if ! "$PY" -c "import llc_design, pfc_design, PySide6" >/dev/null 2>&1; then
 fi
 
 echo "正在启动电源设计工具图形界面..."
+echo "Python: $PY"
 "$PY" -m llc_design gui
-exit $?
+status=$?
+if [ "$status" -ne 0 ]; then
+    echo "启动失败 (exit=$status)。"
+    read -r -p "按回车退出..."
+fi
+exit "$status"
