@@ -241,19 +241,25 @@ jobs:
             gh release create "$tag" --verify-tag --draft --title "Power Design Toolkit $tag — Smart Control" --notes-file release-notes.md
           fi
           gh release upload "$tag" release/* --clobber
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > uploaded-assets.json
+          # Draft releases are often invisible to /releases/tags/{tag} until published.
+          release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          [[ "$release_id" =~ ^[0-9]+$ ]] || { echo "invalid release ID"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > uploaded-assets.json
           python - <<'PY'
           import hashlib, json
           from pathlib import Path
-          assets = {a["name"]: a for a in json.load(open("uploaded-assets.json"))["assets"]}
-          expected = {p.name: p.stat().st_size for p in Path("release").iterdir() if p.is_file()}
+          release = json.load(open("uploaded-assets.json"))
+          assert release["draft"] is True and release["tag_name"].startswith("v")
+          assets = {a["name"]: a for a in release["assets"]}
+          expected = {p.name: p for p in Path("release").iterdir() if p.is_file()}
           assert set(assets) == set(expected), "incomplete or unexpected release assets"
-          for name, size in expected.items():
-              assert assets[name]["size"] == size, f"asset size mismatch: {name}"
-              digest = hashlib.sha256((Path("release") / name).read_bytes()).hexdigest()
+          for name, path in expected.items():
+              assert assets[name]["size"] == path.stat().st_size, f"asset size mismatch: {name}"
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
               assert assets[name]["digest"] == f"sha256:{digest}", f"uploaded digest mismatch: {name}"
           PY
           gh release edit "$tag" --notes-file release-notes.md --draft=false --latest
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '{tag_name,draft,prerelease,published_at,assets:[.assets[].name]}
       - name: Mark incomplete 9.4.0 as superseded
         if: github.ref == 'refs/tags/v9.4.2'
         env:
