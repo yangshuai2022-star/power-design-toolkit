@@ -1,0 +1,128 @@
+name: complete-v941-release
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/complete-v941-release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verifier-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test the actual verifier and publication gate in isolation
+        shell: bash
+        run: |
+          python -m pip install pytest
+          tmp=$(mktemp -d)
+          mkdir -p "$tmp/packaging" "$tmp/llc_design/tests" "$tmp/.github/workflows"
+          cp packaging/verify_bundle.py "$tmp/packaging/"
+          cp llc_design/tests/test_release_verification.py "$tmp/llc_design/tests/"
+          cp .github/workflows/build-release.yml "$tmp/.github/workflows/"
+          python -m pytest -c /dev/null -q "$tmp/llc_design/tests/test_release_verification.py"
+
+  await-verified-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require exact source and two successful platform jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, time
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = "ffc2e2b075da3f68cd9e6649e7a929fc6245dec6"
+          run_id = 36114940843
+          def api(path):
+              return json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/{path}"], text=True))
+          ref = api("git/ref/tags/v9.4.1")["object"]
+          if ref["type"] == "tag":
+              ref = api("git/tags/" + ref["sha"])["object"]
+          assert ref["type"] == "commit" and ref["sha"] == sha, "tag moved"
+          for attempt in range(42):
+              run = api(f"actions/runs/{run_id}")
+              assert run["head_sha"] == sha and run["head_branch"] == "v9.4.1"
+              assert run["workflow_id"] == 325504612 and run["event"] == "workflow_dispatch"
+              if run["status"] == "completed":
+                  break
+              print(f"Build run {run_id}: {run['status']}", flush=True)
+              time.sleep(60)
+          else:
+              raise SystemExit("verified package build did not finish within limit")
+          jobs = api(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+          required = [j for j in jobs if j["name"] == "test" or j["name"].startswith("build (")]
+          assert len(required) == 3, "expected test + two platform jobs"
+          assert sum("windows-latest" in j["name"] for j in required) == 1
+          assert sum("macos-latest" in j["name"] for j in required) == 1
+          for job in required:
+              assert job["conclusion"] == "success", f"required job failed: {job['name']}"
+              if job["name"].startswith("build ("):
+                  gate = [s for s in job["steps"] if s["name"] == "Verify frozen application and fresh evidence"]
+                  assert len(gate) == 1 and gate[0]["conclusion"] == "success"
+          assert all(j["conclusion"] in ("success", "skipped") or j["name"] == "publish" for j in jobs)
+          print("Exact tag source and BOTH real frozen-package jobs verified")
+          PY
+
+  publish:
+    needs: [verifier-regression, await-verified-packages]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-refs/tags/v9.4.1
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout reviewed publication-only correction
+        uses: actions/checkout@v4
+      - name: Checkout unchanged release source
+        uses: actions/checkout@v4
+        with:
+          ref: ffc2e2b075da3f68cd9e6649e7a929fc6245dec6
+          path: release-source
+      - name: Download the exact verified tag-run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 36114940843
+          pattern: power-design-tool-*
+          path: release-source/release
+          merge-multiple: true
+      - name: Replay corrected standard gates without rebuilding or retagging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, subprocess, textwrap
+          from pathlib import Path
+          workflow = Path(".github/workflows/build-release.yml").read_text(encoding="utf-8")
+          source = Path("release-source").resolve()
+          env = dict(os.environ, GITHUB_REF_NAME="v9.4.1", GITHUB_REF="refs/tags/v9.4.1")
+          names = (
+              "Verify both archives and write checksums",
+              "Stage and publish complete release",
+              "Mark incomplete 9.4.0 as superseded",
+          )
+          for name in names:
+              block = workflow.split("      - name: " + name + "\n", 1)[1]
+              block = block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+              command = textwrap.dedent(block)
+              subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=source, env=env, check=True)
+              if name == names[0]:
+                  notes = source / "release-notes.md"
+                  provenance = "\n\nArtifact source commit: `ffc2e2b075da3f68cd9e6649e7a929fc6245dec6`. Binary build run: `36114940843`. Publication-only ZIP path normalization replay: `" + os.environ["GITHUB_SHA"] + "`. Neither application source, tag nor package bytes were changed during replay.\n"
+                  notes.write_text(notes.read_text(encoding="utf-8") + provenance, encoding="utf-8")
+          PY

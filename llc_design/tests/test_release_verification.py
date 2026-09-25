@@ -84,7 +84,7 @@ def test_publish_waits_for_both_platforms_and_stages_draft():
     assert "uploaded digest mismatch" in publish
 
 
-def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=False):
+def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=False, windows_backslash=False):
     import hashlib
     import textwrap
     import zipfile
@@ -107,8 +107,8 @@ def _archive_gate(tmp_path, monkeypatch, *, missing_mac=False, wrong_taxonomy=Fa
                  "brand_taxonomy_sha256": digest}
         (tmp_path / f"release/bundle-proof-{runner}.json").write_text(json.dumps(proof))
         with zipfile.ZipFile(tmp_path / "release" / name, "w") as bundle:
-            bundle.writestr(exe, b"fixture executable, not a real bundle")
-            bundle.writestr("root/engineering_data/brand_taxonomy.json", b"wrong" if wrong_taxonomy else taxonomy)
+            bundle.writestr(exe.replace("/", "\\") if windows_backslash and runner == "Windows" else exe, b"fixture executable, not a real bundle")
+            bundle.writestr("root\\engineering_data\\brand_taxonomy.json" if windows_backslash and runner == "Windows" else "root/engineering_data/brand_taxonomy.json", b"wrong" if wrong_taxonomy else taxonomy)
     workflow = (ROOT / ".github/workflows/build-release.yml").read_text(encoding="utf-8")
     block = workflow.split("- name: Verify both archives and write checksums\n", 1)[1]
     block = block.split("run: |\n", 1)[1].split("\n      - name:", 1)[0]
@@ -131,3 +131,8 @@ def test_archive_gate_rejects_partial_release(tmp_path, monkeypatch):
 def test_archive_gate_rejects_wrong_bundled_data(tmp_path, monkeypatch):
     with pytest.raises(AssertionError, match="taxonomy"):
         _archive_gate(tmp_path, monkeypatch, wrong_taxonomy=True)
+
+
+def test_archive_gate_handles_windows_zip_separators(tmp_path, monkeypatch):
+    _archive_gate(tmp_path, monkeypatch, windows_backslash=True)
+    assert len((tmp_path / "release/SHA256SUMS.txt").read_text().splitlines()) == 2
