@@ -2,6 +2,24 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.4.1 — 2026-09-25
+
+### Fixed — Complete and verified Smart Control desktop release
+
+- includes shared `engineering_data` in both PyInstaller bundles, fixing the missing `brand_taxonomy.json` startup failure observed in the v9.4.0 macOS executable;
+- replaces launch-only self-test invocation with a cross-platform subprocess verifier that waits, checks the exit code and requires a fresh version/platform/resource-hash report;
+- extends the frozen self-test to construct Guided System Design in addition to all four Expert workspaces;
+- retains the outer macOS `.app` directory in the ZIP;
+- prevents partial public releases: both platform jobs must succeed, both archives and taxonomy contents are verified, and all assets are uploaded to a draft before remote sizes/digests are checked and publication is enabled;
+- publishes machine-readable platform evidence and `SHA256SUMS.txt` with the two packages;
+- adds negative regressions for failed/hung children, absent or incorrect reports, missing platforms and wrong bundled data;
+- retains all V9.4 Smart Control and LLC engineering changes; no power-stage or control algorithms are changed in this packaging correction;
+- preserves existing tags and marks the incomplete v9.4.0 release as superseded after the correction is published.
+
+### Engineering boundary
+
+These changes validate software packaging and startup, not hardware performance or the accuracy of every model. The PARTIAL / APPROXIMATION / UNKNOWN boundaries documented for V9.4 remain unchanged.
+
 ## 9.4.0 — 2026-09-25
 
 ### Added / integrated — Smart Control and engineering workflow
