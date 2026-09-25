@@ -2,6 +2,32 @@
 
 This file keeps the **maintained product history**. Detailed debugging notes, one-off migration instructions, CI result snapshots and binary release artifacts are intentionally kept out of the source documentation tree; Git history, Pull Requests, Actions and Releases provide that archive.
 
+## 9.5.0 — 2026-09-26
+
+### Added — Smart Control V2
+
+- exact `LoopModel` façade on the LLC digital-loop Bode authority (no second math stack);
+- TimingModel ownership including consumed `pwm_update_delay_s`, phase/gain budgets, Ms/Mt, multi-crossover status;
+- Solution Map V2 annotations, Robust/Balanced/Fast candidates, robustness aggregation API;
+- Exact H(z) / float32 verification and Loop Chain / Evidence expert view;
+- docs: `SMART_CONTROL_V2_{AUDIT,ARCHITECTURE,VALIDATION}.md`.
+
+### Added — PFC Engineering V3 (round 1)
+
+- unified closed-loop `PFCLineCycleResult` + InstantPoint + explicit convergence status;
+- PF/THD engine with `PF ≈ DPF × DistortionFactor`, THDConvention, distortion localization;
+- Zero Crossing analyzer (min-pulse / dead-time / sensor-offset, isolated regressions);
+- PFC Smart Control V3: loop separation, 2×fline marker, Ms/Mt, phase budgets, Exact H(z) handoff;
+- docs: `PFC_ENGINEERING_V3_*.md`, `PFC_PF_THD_V3.md`, `PFC_ZERO_CROSS_V3.md`, `PFC_SMART_CONTROL_V3.md`.
+
+### Release metadata
+
+- synchronizes package/runtime/version-test/README to **9.5.0**; existing tags are preserved.
+
+### Engineering boundary
+
+Smart Control V2 and PFC V3 round 1 do not claim hardware validation. Magnetics/loss/worst-case envelope, FRA plant source and full Guided corner meshes remain PARTIAL/deferred. Averaged CCM models, APPROXIMATION dead-time/min-current bounds and UNKNOWN distortion causes stay explicit. Software/packaged self-tests are not hardware sign-off.
+
 ## 9.4.2 — 2026-09-25
 
 ### Fixed — Windows release-test encoding
