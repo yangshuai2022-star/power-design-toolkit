@@ -214,9 +214,11 @@ jobs:
               assert proof["brand_taxonomy_sha256"] == taxonomy_sha
               archive = Path("release") / name
               with zipfile.ZipFile(archive) as bundle:
-                  assert executable in bundle.namelist(), f"missing executable in {name}"
+                  names = {n.replace("\\", "/"): n for n in bundle.namelist()}
+                  assert len(names) == len(bundle.namelist()), "ambiguous ZIP member names"
+                  assert executable in names, f"missing executable in {name}"
                   assert bundle.testzip() is None, f"corrupt archive: {name}"
-                  entries = [n for n in bundle.namelist() if n.endswith("/engineering_data/brand_taxonomy.json")]
+                  entries = [original for normalized, original in names.items() if normalized.endswith("/engineering_data/brand_taxonomy.json")]
                   assert any(hashlib.sha256(bundle.read(n)).hexdigest() == taxonomy_sha for n in entries), f"missing/wrong taxonomy: {name}"
               manifest.append(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {name}")
           Path("release/SHA256SUMS.txt").write_text("\n".join(manifest) + "\n")
