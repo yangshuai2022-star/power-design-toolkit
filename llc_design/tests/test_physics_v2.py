@@ -125,13 +125,86 @@ def test_two_stage_optimizer_rejects_fail_before_rank():
         run_stage_b=False,  # keep CI light; still exercises envelope gate + ranking metrics
     )
     assert result.stage_a.table is not None
-    # Rejected envelope FAIL candidates must not outrank accepted ones
-    accepted = [v for v in result.verified if not v.rejected]
-    rejected = [v for v in result.verified if v.rejected]
-    if accepted and rejected:
-        assert result.verified.index(accepted[0]) < result.verified.index(rejected[0]) or True
-    for v in rejected:
-        assert v.reject_reason
+    # Every accepted candidate must precede every rejected candidate.
+    flags = [candidate.rejected for candidate in result.verified]
+    assert flags == sorted(flags)
+    for candidate in result.verified:
+        if candidate.rejected:
+            assert candidate.reject_reason
+
+
+@pytest.mark.parametrize("reject_at", ["envelope", "td"])
+def test_two_stage_optimizer_rejection_gates_are_not_vacuous(monkeypatch, reject_at):
+    """Force both an accepted and rejected candidate through the real ranking path.
+
+    Only physical evaluations and the Stage-A table are substituted. This test
+    verifies gate consumption/order, not the accuracy of the substituted models.
+    """
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    import llc_design.optimization.two_stage as module
+
+    spec = LLCDesignSpec()
+    analyzer = LLCSystemAnalyzer()
+    analysis = analyzer.analyze(spec)
+    optimizer = TwoStageLLCOptimizer(analyzer)
+    rejected_ln = float(spec.ln_ratio)
+    accepted_ln = rejected_ln + 1.0
+    rows = [
+        {
+            "feasible": True,
+            "ln": ln,
+            "q_full": spec.q_full_load,
+            "fr_khz": spec.resonant_frequency_hz / 1e3,
+            "primary_turns": spec.primary_turns,
+            "secondary_turns": spec.secondary_turns,
+            "primary_device": spec.primary_device,
+            "sr_parallel": spec.sr_parallel_devices_per_position,
+            "weighted_loss_w": float(index),
+        }
+        for index, ln in enumerate((rejected_ln, accepted_ln))
+    ]
+    monkeypatch.setattr(
+        optimizer.fast, "run",
+        lambda *args, **kwargs: SimpleNamespace(table=pd.DataFrame(rows)),
+    )
+    monkeypatch.setattr(analyzer, "analyze", lambda candidate: analysis)
+    checked = []
+
+    def envelope_status(candidate, unused_analyzer):
+        checked.append(candidate.ln_ratio)
+        if reject_at == "envelope" and candidate.ln_ratio == rejected_ln:
+            return module.ConstraintStatus.FAIL
+        return module.ConstraintStatus.PASS
+
+    def td_report(candidate):
+        validity = module.ModelValidity.PASS
+        if reject_at == "td" and candidate.ln_ratio == rejected_ln:
+            validity = module.ModelValidity.FAIL
+        return SimpleNamespace(overall_validity=validity)
+
+    monkeypatch.setattr(module, "_envelope_status", envelope_status)
+    monkeypatch.setattr(module, "validate_fha_against_time_domain", td_report)
+    monkeypatch.setattr(
+        module, "evaluate_zvs_margin",
+        lambda *args, **kwargs: SimpleNamespace(zvs_margin=0.5),
+    )
+    result = optimizer.run(spec, maximum_candidates=2, top_n=1, run_stage_b=True)
+    assert checked == [rejected_ln, accepted_ln]
+    assert len(result.verified) == 2
+    accepted, rejected = result.verified
+    assert not accepted.rejected
+    assert accepted.spec.ln_ratio == accepted_ln
+    assert rejected.rejected
+    assert rejected.spec.ln_ratio == rejected_ln
+    expected_reason = (
+        "envelope constraint FAIL"
+        if reject_at == "envelope" else "FHA↔TD MODEL_VALIDITY FAIL"
+    )
+    assert rejected.reject_reason == expected_reason
+    assert rejected.rank_metrics == {}
 
 
 def test_regression_case_a_nominal_loss_positive():
