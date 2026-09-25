@@ -31,6 +31,20 @@ from .ttpl_design import (
     TTPLLineTrace,
     analyze_ttpl_design,
 )
+from .pfc_v3 import (
+    ConvergenceStatus,
+    PFCLineCycleResult,
+    PFTHDResult,
+    ZeroCrossAnalysisResult,
+    PFCSmartControlV3Result,
+    analyze_zero_crossing,
+    build_line_cycle_result,
+    build_pfc_smart_control_v3,
+    compute_pf_thd,
+    localize_distortion,
+    pf_thd_from_waveforms,
+    run_pfc_engineering_v3_core,
+)
 
 __all__ = [
     "CapacitorBankDesignConfig",
@@ -53,4 +67,16 @@ __all__ = [
     "evaluate_hf_device",
     "evaluate_slow_device",
     "solve_ttpl_semiconductor_thermal",
+    "ConvergenceStatus",
+    "PFCLineCycleResult",
+    "PFTHDResult",
+    "ZeroCrossAnalysisResult",
+    "PFCSmartControlV3Result",
+    "analyze_zero_crossing",
+    "build_line_cycle_result",
+    "build_pfc_smart_control_v3",
+    "compute_pf_thd",
+    "localize_distortion",
+    "pf_thd_from_waveforms",
+    "run_pfc_engineering_v3_core",
 ]
