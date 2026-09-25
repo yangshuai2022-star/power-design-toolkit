@@ -92,3 +92,15 @@ def test_recovery_requires_original_successful_jobs_and_exact_assets():
                   'e8751d37ceb975ae0e8e13b374773e419de6643b', 'len(files) == 5',
                   'refusing to overwrite public release'):
         assert value in text
+
+
+def test_draft_asset_verification_resolves_numeric_release_id():
+    text = (ROOT / '.github/workflows/complete-v942-release.yml').read_text(encoding='utf-8')
+    stage = text.split('- name: Stage all five assets and publish after remote digest verification', 1)[1]
+    stage = stage.split('- name: Mark incomplete', 1)[0]
+    assert '--json databaseId --jq .databaseId' in stage
+    assert 'releases/$release_id' in stage
+    assert 'releases/tags/$tag' not in stage
+    assert stage.index('releases/$release_id') < stage.index('--draft=false')
+    assert 'assets[name]["digest"]' in stage
+    assert 'refusing to overwrite public release' in stage
