@@ -1,0 +1,172 @@
+name: complete-v942-release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/complete-v942-release.yml
+      - .gitattributes
+      - llc_design/tests/test_release_eol_contract.py
+  push:
+    branches: [main]
+    paths: [.github/workflows/complete-v942-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verifier-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest
+      - run: python -m pytest --noconftest -q llc_design/tests/test_release_eol_contract.py
+
+  recover:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verifier-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: publish-refs/tags/v9.4.2
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout reviewed publication verifier
+        uses: actions/checkout@v4
+      - name: Checkout immutable application source
+        uses: actions/checkout@v4
+        with:
+          ref: v9.4.2
+          path: version-tree
+          fetch-depth: 0
+      - name: Require the original green test and both green frozen builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = yangshuai2022-star/power-design-toolkit
+          test "$(git -C version-tree rev-parse HEAD)" = e8751d37ceb975ae0e8e13b374773e419de6643b
+          git -C version-tree merge-base --is-ancestor ae58161b11c4246e7a81e25b25a9260ec065030d HEAD
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/36120489780" > source-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/36120489780/jobs?per_page=100" > source-jobs.json
+          python - <<'PY'
+          import json
+          run = json.load(open("source-run.json"))
+          assert run["head_sha"] == "e8751d37ceb975ae0e8e13b374773e419de6643b"
+          assert run["head_branch"] == "v9.4.2" and run["status"] == "completed"
+          assert run["run_attempt"] == 1
+          jobs = {job["id"]: job for job in json.load(open("source-jobs.json"))["jobs"]}
+          for job_id in (108024571430, 108027671777, 108027671853):
+              job = jobs[job_id]
+              assert job["status"] == "completed" and job["conclusion"] == "success"
+          for job_id in (108027671777, 108027671853):
+              step = next(s for s in jobs[job_id]["steps"] if s["name"] == "Verify frozen application and fresh evidence")
+              assert step["conclusion"] == "success"
+          # Only publication failed; no failed build/test is being bypassed.
+          assert jobs[108031858268]["name"] == "publish"
+          assert jobs[108031858268]["conclusion"] == "failure"
+          PY
+      - name: Download only the original verified platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 36120489780
+          pattern: power-design-tool-*
+          path: version-tree/release
+          merge-multiple: true
+      - name: Verify exact v9.4.2 assets and EOL contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, os, textwrap
+          from pathlib import Path
+
+          def rewrite_gate(gate):
+              changes = (
+                  ('taxonomy_sha = hashlib.sha256(Path("engineering_data/brand_taxonomy.json").read_bytes()).hexdigest()',
+                   'taxonomy_bytes = Path("engineering_data/brand_taxonomy.json").read_bytes().replace(b"\\r\\n", b"\\n")\nassert b"\\r" not in taxonomy_bytes, "unsupported source line endings"\ntaxonomy_hashes = {hashlib.sha256(b).hexdigest() for b in (taxonomy_bytes, taxonomy_bytes.replace(b"\\n", b"\\r\\n"))}'),
+                  ('assert proof["brand_taxonomy_sha256"] == taxonomy_sha',
+                   'assert proof["brand_taxonomy_sha256"] in taxonomy_hashes, "runtime taxonomy differs from tagged source"'),
+                  ('hashlib.sha256(bundle.read(n)).hexdigest() == taxonomy_sha',
+                   'hashlib.sha256(bundle.read(n)).hexdigest() == proof["brand_taxonomy_sha256"]'),
+              )
+              for before, after in changes:
+                  assert gate.count(before) == 1, "unexpected tagged publisher contract"
+                  gate = gate.replace(before, after)
+              assert "== taxonomy_sha" not in gate
+              return gate
+
+          def verify():
+              source = Path("version-tree").resolve()
+              expected = {
+                  "PowerDesignTool-Windows-x64.zip": "846f1c46e302f19f614996d603e5df1acf707e89425cc7962c747b49801bc3d7",
+                  "PowerDesignTool-macOS-arm64.zip": "628ad706415e20936ef00d86f4e4f30bd6a509af254f689782759e84dcaddd02",
+                  "bundle-proof-Windows.json": "12a16078a334d6b717aa6229a7c3fac2bb4d0bb234a3401795d55de622fd0dea",
+                  "bundle-proof-macOS.json": "392133ab8d88b8f02328da34e10e6b127d116e5dc768cf520deb09bcffdad895",
+              }
+              assert {p.name for p in (source / "release").iterdir()} == set(expected)
+              for name, sha in expected.items():
+                  assert hashlib.sha256((source / "release" / name).read_bytes()).hexdigest() == sha, name
+              workflow = (source / ".github/workflows/build-release.yml").read_text(encoding="utf-8")
+              block = workflow.split("- name: Verify both archives and write checksums\n", 1)[1]
+              block = block.split("run: |\n", 1)[1].split("\n      - name:", 1)[0]
+              gate = textwrap.dedent(block).split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+              os.chdir(source)
+              os.environ["GITHUB_REF_NAME"] = "v9.4.2"
+              exec(compile(rewrite_gate(gate), "reviewed-v942-publication-verifier", "exec"), {})
+              print("Both unchanged CI packages verified: only LF/CRLF resource equivalence accepted; raw proof/archive hashes retained.")
+
+          if __name__ == "__main__":
+              verify()
+          PY
+      - name: Stage all five assets and publish after remote digest verification
+        working-directory: version-tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v9.4.2
+          if gh release view "$tag" --json isDraft > existing-release.json 2>/dev/null; then
+            python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "refusing to overwrite public release"'
+          else
+            gh release create "$tag" --verify-tag --draft --title "Power Design Toolkit $tag — Smart Control" --notes-file release-notes.md
+          fi
+          gh release upload "$tag" release/* --clobber
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > uploaded-assets.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          release = json.load(open("uploaded-assets.json"))
+          assert release["draft"] is True and release["tag_name"] == "v9.4.2"
+          assets = {a["name"]: a for a in release["assets"]}
+          files = {p.name: p for p in Path("release").iterdir()}
+          assert len(files) == 5 and set(assets) == set(files)
+          for name, path in files.items():
+              assert assets[name]["size"] == path.stat().st_size
+              assert assets[name]["digest"] == "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+          PY
+          test "$(git ls-remote origin 'refs/tags/v9.4.2^{}' | cut -f1)" = e8751d37ceb975ae0e8e13b374773e419de6643b
+          gh release edit "$tag" --draft=false --latest --notes-file release-notes.md
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '{tag_name,draft,prerelease,published_at,assets:[.assets[].name]}'
+      - name: Mark incomplete v9.4.0 superseded
+        working-directory: version-tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view v9.4.0 --json body > old-release.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body = json.load(open("old-release.json"))["body"]
+          notice = "WARNING: This release is incomplete and superseded by v9.4.2. Do not use it; download the verified Windows/macOS v9.4.2 packages instead.\n\n"
+          if not body.startswith(notice):
+              body = notice + body
+          Path("old-release-notes.md").write_text(body, encoding="utf-8")
+          PY
+          gh release edit v9.4.0 --prerelease --latest=false --notes-file old-release-notes.md
